@@ -1,4 +1,8 @@
 # backend/models/sast_models.py
+# This will contain the SQLAlchemy model definition only for SAST findings.
+ 
+
+
 from flask_sqlalchemy import SQLAlchemy
 
 
