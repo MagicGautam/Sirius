@@ -16,6 +16,8 @@ class SastService:
     # DB Initialization is centeralized, so we don't need to do it here.
     
     def ingest_semgrep_report(self, report_data):
+        new_findings_count=0
+
          # --- ADD THESE DEBUG LINES ---
         if report_data is None:
             logger.error("ingest_semgrep_report received None for report_data.")
@@ -28,7 +30,7 @@ class SastService:
         # --- END DEBUG LINES ---
         
         
-        new_findings_count=0
+        
         results=report_data.get('results', [])
 
         if not results: # Add a check for empty/missing results list
