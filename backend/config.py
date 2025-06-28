@@ -7,12 +7,14 @@ os.makedirs(DB_DIR, exist_ok=True) # Ensure the databases directory exists
 
 class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'  # Default to in-memory for base config
 
 class DevelopmentConfig(Config):
     DEBUG = True
-    SAST_DATABASE_URI = f'sqlite:///{os.path.join(DB_DIR, "sast.db")}'
-    # SCA_DATABASE_URI = f'sqlite:///{os.path.join(DB_DIR, "sca.db")}'
-    # CONTAINER_DATABASE_URI = f'sqlite:///{os.path.join(DB_DIR, "container.db")}'
-    # DAST_DATABASE_URI = f'sqlite:///{os.path.join(DB_DIR, "dast.db")}'
-
+    SQLALCHEMY_BINDS = {
+        'sast_db': f'sqlite:///{os.path.join(DB_DIR, "sast.db")}',
+        # 'sca_db': f'sqlite:///{os.path.join(DB_DIR, "sca.db")}',
+        # 'container_db': f'sqlite:///{os.path.join(DB_DIR, "container.db")}',
+        # 'dast_db': f'sqlite:///{os.path.join(DB_DIR, "dast.db")}'
+    }
 # You can add ProductionConfig, TestingConfig later

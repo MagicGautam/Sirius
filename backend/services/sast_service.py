@@ -1,25 +1,47 @@
 # backend/services/sast_service.py
 #File will contain the logic to parse Semgrep reports and interact with the sast_db.
 
-from models.sast_models import SastFinding, sast_db
+from backend.models.sast_models import SastFinding
+from backend.extensions import db
+import logging
+
+logger = logging.getLogger(__name__)
  
 
 class SastService:
-    def __init__(self, app=None):
-        if app:
-            self.init_app(app)
+     # Accept the central db instance when initializing the service
+    def __init__(self, db_instance):
+        self.db= db_instance # Store the db instance for use in methods
     
-    def init_app(self, app):
-        sast_db.init_app(app)
-        with app.app_context():
-            sast_db.create_all()
-            print("SAST database initialized and tables created/updated.")
+    # DB Initialization is centeralized, so we don't need to do it here.
     
     def ingest_semgrep_report(self, report_data):
+         # --- ADD THESE DEBUG LINES ---
+        if report_data is None:
+            logger.error("ingest_semgrep_report received None for report_data.")
+            return 0, 0 # Or raise an appropriate error
+        if not isinstance(report_data, dict):
+            logger.error(f"ingest_semgrep_report received non-dict report_data: {type(report_data)} - {report_data}")
+            return 0, 0
+
+        logger.debug(f"Received report_data keys: {report_data.keys()}")
+        # --- END DEBUG LINES ---
+        
+        
         new_findings_count=0
         results=report_data.get('results', [])
 
+        if not results: # Add a check for empty/missing results list
+            logger.info("No 'results' list found or it's empty in the SAST report.")
+            return 0, 0
+
         for result in results:
+            # --- ADD THIS CHECK ---
+            if not isinstance(result, dict):
+                logger.warning(f"Skipping non-dictionary item found in 'results' list: {result}")
+                continue
+            # --- END CHECK ---
+
             try:
                 check_id=result.get('check_id')
                 file_path=result.get('path')
@@ -52,7 +74,7 @@ class SastService:
                         code_snippet=code_snippet,
                         suggested_fix=suggested_fix
                     )
-                    sast_db.session.add(new_finding)
+                    self.db.session.add(new_finding)
                     new_findings_count += 1
 
                 else:
@@ -62,7 +84,7 @@ class SastService:
                 print(f"Error processing SAST finding: {e}")
                 continue
 
-            sast_db.session.commit()
+            self.db.session.commit()
             return new_findings_count, len(results)
         
     def get_all_findings(self):
