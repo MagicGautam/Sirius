@@ -6,6 +6,7 @@ from backend.config import DevelopmentConfig
 from backend.extensions import db
 from backend.services.sast_service import SastService
 from backend.models.sast_models import SastFinding
+from backend.services.llm_service import LLMService # Import the new LLM service
 import logging
 import json # Import json for pretty printing
 
@@ -16,7 +17,7 @@ app.config.from_object(DevelopmentConfig)
 app.logger.setLevel(logging.DEBUG)
 
 db.init_app(app)
-
+llm_service = LLMService(model_name="gemma3:1b")
 sast_service = SastService(db)
 
 with app.app_context():
@@ -68,7 +69,58 @@ def get_findings(scan_type):
         return jsonify(findings), 200
     else:
         return jsonify({"error": f"Retrieval for scan type '{scan_type}' not yet implemented."}), 400
-    
+
+# --- NEW: API Endpoint for LLM Analysis ---
+@app.route('/api/llm/analyze/<scan_type>/<int:finding_id>', methods=['GET'])
+def analyze_finding_with_llm(scan_type: str, finding_id: int):
+    """
+    API endpoint to trigger LLM analysis for a specific security finding.
+    The LLM processes the finding details and provides a human-readable analysis and fix.
+    """
+    app.logger.info(f"Received request to analyze {scan_type} finding ID: {finding_id} with LLM via Ollama.")
+
+    # 1. Check if LLM service (Ollama connection) is ready
+    if not llm_service.is_loaded():
+        app.logger.warning("Ollama LLM service is not ready. Returning 503.")
+        return jsonify({"error": "LLM service is not ready. Please ensure Ollama is running and accessible."}), 503 # Service Unavailable
+
+    finding_data = None
+    # 2. Fetch the finding data from the database based on scan_type
+    if scan_type == 'sast':
+        with app.app_context(): # Ensure we are in an application context for DB operations
+            # Query the SastFinding model to get the finding by its ID
+            sast_finding_obj = SastFinding.query.get(finding_id)
+            if sast_finding_obj:
+                # Convert the SQLAlchemy model object to a dictionary for LLM processing
+                finding_data = sast_finding_obj.to_dict()
+    elif scan_type == 'dast' or scan_type == 'sca':
+        # FUTURE: Placeholder for DAST and SCA.
+        # You would query your DASTFinding or ScaFinding models here.
+        app.logger.warning(f"Analysis for scan type '{scan_type}' is not yet fully implemented for database retrieval.")
+        return jsonify({"error": f"Retrieval for scan type '{scan_type}' is not yet implemented."}), 501 # Not Implemented
+    else:
+        app.logger.warning(f"Unsupported scan type for LLM analysis: {scan_type}")
+        return jsonify({"error": f"Unsupported scan type '{scan_type}' for LLM analysis."}), 400
+
+    # 3. Handle case where finding is not found
+    if not finding_data:
+        app.logger.warning(f"Finding with ID {finding_id} not found for scan type {scan_type}.")
+        return jsonify({"error": f"Finding with ID {finding_id} not found."}), 404
+
+    # 4. Generate LLM prompt and analysis
+    try:
+        # Ask LLMService to generate the appropriate prompt for the scan type
+        prompt = llm_service.generate_prompt(scan_type, finding_data)
+        # Ask LLMService to generate analysis using the prompt
+        llm_analysis = llm_service.generate_analysis(prompt)
+        
+        app.logger.info(f"LLM analysis completed for finding ID: {finding_id}.")
+        return jsonify({"finding_id": finding_id, "scan_type": scan_type, "llm_analysis": llm_analysis}), 200
+    except Exception as e:
+        app.logger.error(f"Error during LLM analysis for finding {finding_id}: {e}", exc_info=True)
+        return jsonify({"error": f"Failed to generate LLM analysis: {str(e)}"}), 500
+
+
 
 @app.route('/')
 def home():
