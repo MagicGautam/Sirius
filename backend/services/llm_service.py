@@ -5,8 +5,7 @@ import json
 logger = logging.getLogger(__name__)
 
 class LLMService:
-    def __init__(self, ollama_url: str = "http://localhost:11434", model_name= str= "gemma3:1b"):
-        
+    def __init__(self, ollama_url: str = "http://localhost:11434", model_name: str = "gemma3:1b"):
         self.ollama_url = ollama_url
         self.model_name = model_name
         self._is_loaded = False
@@ -19,7 +18,7 @@ class LLMService:
             logger.info("Successfully connected to Ollama.")
 
         except requests.exceptions.ConnectionError:
-            ogger.critical(f"Failed to connect to Ollama at {self.ollama_url}. "
+            logger.critical(f"Failed to connect to Ollama at {self.ollama_url}. "
                             "Please ensure Ollama is running and accessible.")
             self._is_loaded = False
         except Exception as e:
@@ -46,19 +45,19 @@ class LLMService:
         Generates a detailed prompt for a SAST finding.
         """
         prompt = f"""You are a highly skilled cybersecurity analyst. Analyze the following SAST vulnerability report. Provide:
-1.  A concise, technical summary of the vulnerability (e.g., "SQL Injection in 'login' function").
-2.  A clear explanation of its security implications and potential impact if exploited (e.g., "An attacker could bypass authentication...").
-3.  A specific, actionable, and secure code fix for the provided snippet, adhering to best practices and explaining the changes.
-4.  Briefly mention preventative measures beyond the code fix, if applicable.
+        1.  A concise, technical summary of the vulnerability (e.g., "SQL Injection in 'login' function").
+        2.  A clear explanation of its security implications and potential impact if exploited (e.g., "An attacker could bypass authentication...").
+        3.  A specific, actionable, and secure code fix for the provided snippet, adhering to best practices and explaining the changes.
+        4.  Briefly mention preventative measures beyond the code fix, if applicable.
 
-Vulnerability Details:
-- Rule ID: {sast_finding.get('rule_id', 'N/A')}
-- File: {sast_finding.get('file_path', 'N/A')} (Line {sast_finding.get('line_number', 'N/A')})
-- Severity: {sast_finding.get('severity', 'N/A')}
-- Description: {sast_finding.get('description', 'No description provided by scanner.')}
-- Code Snippet:```java {sast_finding.get('code_snippet', 'No code snippet available.')}
-- Scanner's Suggested Fix: {sast_finding.get('scanner_suggested_fix', 'No suggested fix provided.')}
-- Analysis (start yourreponse here):"""
+        Vulnerability Details:
+        - Rule ID: {sast_finding.get('rule_id', 'N/A')}
+        - File: {sast_finding.get('file_path', 'N/A')} (Line {sast_finding.get('line_number', 'N/A')})
+        - Severity: {sast_finding.get('severity', 'N/A')}
+        - Description: {sast_finding.get('description', 'No description provided by scanner.')}
+        - Code Snippet:```java {sast_finding.get('code_snippet', 'No code snippet available.')}
+        - Scanner's Suggested Fix: {sast_finding.get('scanner_suggested_fix', 'No suggested fix provided.')}
+        - Analysis (start yourreponse here):"""
         return prompt
     
 
