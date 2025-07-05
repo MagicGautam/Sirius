@@ -42,13 +42,24 @@ class LLMService:
     
     def _generate_sast_prompt(self, sast_finding: dict ) -> str:
         """
-        Generates a detailed prompt for a SAST finding.
+        Generates a detailed prompt for a SAST finding,
+        with instructions to keep the output direct and devoid of conversational filler.
         """
-        prompt = f"""You are a highly skilled cybersecurity analyst. Analyze the following SAST vulnerability report. Provide:
-        1.  A concise, technical summary of the vulnerability (e.g., "SQL Injection in 'login' function").
-        2.  A clear explanation of its security implications and potential impact if exploited (e.g., "An attacker could bypass authentication...").
-        3.  A specific, actionable, and secure code fix for the provided snippet, adhering to best practices and explaining the changes.
-        4.  Briefly mention preventative measures beyond the code fix, if applicable.
+        # KEY CHANGES ARE HERE IN THE PROMPT INSTRUCTIONS
+        prompt = f"""Analyze the following SAST vulnerability report. Provide only the requested information.
+        DO NOT include any conversational phrases, introductory remarks, or concluding statements.
+        Be direct, concise, and technical.
+
+        Your response should be structured strictly using the following Markdown headings:
+
+        ### Vulnerability Summary
+        [Provide a concise, technical summary of the vulnerability.]
+
+        ### Security Implications
+        [Explain the clear security implications and potential impact if exploited.]
+
+        ### Remediation
+        [Provide a specific, actionable, and secure code fix for the provided snippet, adhering to best practices and explaining the changes. Also include relevant preventative measures beyond the code fix.]
 
         Vulnerability Details:
         - Rule ID: {sast_finding.get('rule_id', 'N/A')}
