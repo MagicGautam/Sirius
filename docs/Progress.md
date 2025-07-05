@@ -1,6 +1,6 @@
-# 🛡️ DevSecOps Vulnerability Dashboard - Overview
+# 🛡️ SIRIUS - Overview
 
-Welcome to the **DevSecOps Vulnerability Dashboard**, a powerful, intelligent web-based tool designed to streamline and enrich the analysis of security scan reports.
+Welcome to the **Sirius Vulnerability Dashboard**, a powerful, intelligent web-based tool designed to streamline and enrich the analysis of security scan reports.
 
 This project integrates automated ingestion of findings from various security scanners, leverages the capabilities of **local Large Language Models (LLMs)** via Ollama for human-readable insights, and implements efficient **caching mechanisms** to reduce redundancy and improve performance.
 
