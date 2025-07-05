@@ -1,4 +1,4 @@
-devsecops-dashboard/
+sirius/
 └── backend/
     ├── app.py                      # Main Flask app, routes, orchestrates services
     ├── config.py                   # Global configurations
