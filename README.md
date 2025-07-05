@@ -28,4 +28,4 @@ The DevSecOps Dashboard is a backend application designed to ingest security vul
 
 ## Setup and Installation
 
-Follow other documentation in /backend/docs/ folder to get started.
+Follow other documentation in /docs/ folder to get started.
