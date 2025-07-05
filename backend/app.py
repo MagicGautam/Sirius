@@ -8,6 +8,7 @@ from backend.services.sast_service import SastService
 from backend.models.sast_models import SastFinding
 from backend.services.llm_service import LLMService # Import the new LLM service
 import logging
+import hashlib
 import json # Import json for pretty printing
 
 app = Flask(__name__)
@@ -70,6 +71,7 @@ def get_findings(scan_type):
     else:
         return jsonify({"error": f"Retrieval for scan type '{scan_type}' not yet implemented."}), 400
 
+
 # --- NEW: API Endpoint for LLM Analysis ---
 @app.route('/api/llm/analyze/<scan_type>/<int:finding_id>', methods=['GET'])
 def analyze_finding_with_llm(scan_type: str, finding_id: int):
@@ -107,15 +109,40 @@ def analyze_finding_with_llm(scan_type: str, finding_id: int):
         app.logger.warning(f"Finding with ID {finding_id} not found for scan type {scan_type}.")
         return jsonify({"error": f"Finding with ID {finding_id} not found."}), 404
 
+    #5th july Commit: 
+    
     # 4. Generate LLM prompt and analysis
+
+    # Check if the finding has already been analyzed and cached
     try:
         # Ask LLMService to generate the appropriate prompt for the scan type
         prompt = llm_service.generate_prompt(scan_type, finding_data)
-        # Ask LLMService to generate analysis using the prompt
+        current_prompt_hash=hashlib.sha256(prompt.encode('utf-8')).hexdigest()
+
+        if sast_finding_obj and sast_finding_obj.llm_analysis_content and \
+            sast_finding_obj.llm_analysis_prompt_hash == current_prompt_hash:
+            app.logger.info(f"LLM analysis for finding ID {finding_id} found in cache. Returning cached analysis.")
+            return jsonify({
+                "finding_id": finding_id,
+                "scan_type": scan_type,
+                "llm_analysis": sast_finding_obj.llm_analysis_content
+            }), 200
+        app.logger.info(f"LLM analysis for finding ID {finding_id} not found in cache. Generating new analysis.")
+
+    # Case where finding is not found or prompt hash does not match
+
+        # Generating new analysis here
         llm_analysis = llm_service.generate_analysis(prompt)
         
-        app.logger.info(f"LLM analysis completed for finding ID: {finding_id}.")
+        with app.app_context():
+            sast_finding_obj.llm_analysis_content= llm_analysis
+            sast_finding_obj.llm_analysis_prompt_hash = current_prompt_hash
+            db.session.add(sast_finding_obj)
+            db.session.commit()
+            app.logger.info(f"LLM analysis generated for finding ID {finding_id}.")          
+        
         return jsonify({"finding_id": finding_id, "scan_type": scan_type, "llm_analysis": llm_analysis}), 200
+    
     except Exception as e:
         app.logger.error(f"Error during LLM analysis for finding {finding_id}: {e}", exc_info=True)
         return jsonify({"error": f"Failed to generate LLM analysis: {str(e)}"}), 500
