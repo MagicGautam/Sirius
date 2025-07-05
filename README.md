@@ -4,6 +4,8 @@
 
 Sirius is a Security Dashboard designed to ingest security vulnerability reports (starting with SAST) and leverage a local Large Language Model (LLM) for intelligent analysis and remediation suggestions. It aims to provide developers and security teams with clear, actionable insights directly from raw scanner outputs.
 
+Note: Since no real-world situations are being simulated currently, reports are used from the Defect Dojo JSON report database. Defect Dojo is a widely adopted vulnerability management system. For more information, refer to the official GitHub repository: https://github.com/DefectDojo/django-DefectDojo
+
 ## Features
 
 * **SAST Report Ingestion:** Supports ingesting vulnerability findings from SAST (Static Application Security Testing) tools (e.g., Semgrep-like JSON format).
