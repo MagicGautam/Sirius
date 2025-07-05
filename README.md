@@ -1,8 +1,8 @@
-# DevSecOps Dashboard
+# Sirius 
 
 ## Overview
 
-The DevSecOps Dashboard is a backend application designed to ingest security vulnerability reports (starting with SAST) and leverage a local Large Language Model (LLM) for intelligent analysis and remediation suggestions. It aims to provide developers and security teams with clear, actionable insights directly from raw scanner outputs.
+Sirius is a Security Dashboard designed to ingest security vulnerability reports (starting with SAST) and leverage a local Large Language Model (LLM) for intelligent analysis and remediation suggestions. It aims to provide developers and security teams with clear, actionable insights directly from raw scanner outputs.
 
 ## Features
 
@@ -28,4 +28,4 @@ The DevSecOps Dashboard is a backend application designed to ingest security vul
 
 ## Setup and Installation
 
-Follow other documentation in /docs/ folder to get started.
+Follow other documentation in /docs folder to get started.
