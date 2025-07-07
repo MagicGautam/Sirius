@@ -151,7 +151,7 @@ def analyze_finding_with_llm(scan_type: str, finding_id: int):
 
 @app.route('/')
 def home():
-    return "DevSecOps Vulnerability Dashboard Backend - Online!"
+    return "Sirius is watching!"
 
 
 if __name__ == '__main__':
