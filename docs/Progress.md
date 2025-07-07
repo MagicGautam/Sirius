@@ -89,7 +89,5 @@ This project follows a modular, phased approach:
 
 ---
 
-> 💡 *"Security isn’t just about automation—it’s about understanding."* This dashboard brings intelligence and clarity to the noisy world of vulnerability management.
-
 ---
 
