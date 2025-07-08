@@ -1,13 +1,11 @@
 # backend/Container_models.py
 
 from datetime import datetime
-from . import db # Assuming your db object is initialized in __init__.py and imported like this
+from backend.models import db # Assuming your db object is initialized in __init__.py and imported like this
 import hashlib # For hashing scan reports
 
-# --- New Models for Container Scans ---
-
 class ContainerScan(db.Model):
-    __bind_key__ = 'container_db' # Explicitly bind to 'container_db'
+    __bind_key__ = 'container_db' 
     __tablename__ = 'container_scans'
     id = db.Column(db.Integer, primary_key=True)
     scan_timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -24,7 +22,7 @@ class ContainerScan(db.Model):
         return f"<ContainerScan {self.id} - {self.image_name} @ {self.scan_timestamp}>"
 
 class ContainerFinding(db.Model):
-    __bind_key__ = 'container_db' # Explicitly bind to 'container_db'
+    __bind_key__ = 'container_db' 
     __tablename__ = 'container_findings'
     id = db.Column(db.Integer, primary_key=True)
     scan_id = db.Column(db.Integer, db.ForeignKey('container_scans.id'), nullable=False)
@@ -59,7 +57,7 @@ class ContainerFinding(db.Model):
         return f"<ContainerFinding {self.id} - {self.vulnerability_id} in {self.pkg_name} ({self.installed_version})>"
 
 class CVERichment(db.Model):
-    __bind_key__ = 'container_db' # Explicitly bind to 'container_db'
+    __bind_key__ = 'container_db' 
     __tablename__ = 'cve_enrichment'
     cve_id = db.Column(db.String(50), primary_key=True)
     description = db.Column(db.Text)

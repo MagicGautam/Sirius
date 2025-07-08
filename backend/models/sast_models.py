@@ -1,7 +1,7 @@
 # backend/models/sast_models.py
 # This will contain the SQLAlchemy model definition only for SAST findings.
 
-from backend.extensions import db
+from backend.models import db
 from datetime import datetime
 
 class SastFinding(db.Model):

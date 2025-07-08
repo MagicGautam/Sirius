@@ -2,7 +2,7 @@
 #File will contain the logic to parse Semgrep reports and interact with the sast_db.
 
 from backend.models.sast_models import SastFinding
-from backend.extensions import db
+from backend.models import db
 import logging
 
 logger = logging.getLogger(__name__)
