@@ -1,6 +1,9 @@
 from flask import Blueprint, request, jsonify, current_app
 import logging
 import hashlib
+from backend.models import db
+from backend.models.sast_models import SastFinding
+# from backend.models.container_models import ContainerFinding # Uncomment when ready
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -92,12 +95,12 @@ def analyze_finding_with_llm(scan_type: str, finding_id: int):
     # Using current_app.db.session instead of db.session
     if scan_type == 'sast':
         # The app context is already active during a request, so no need for `with app.app_context()` here
-        finding_obj = current_app.db.session.get(SastFinding, finding_id) # Use session.get for primary key lookup
+        finding_obj = db.session.get(SastFinding, finding_id)
         if finding_obj:
             finding_data = finding_obj.to_dict()
     elif scan_type == 'container':
-        from backend.container_models import ContainerFinding # Import model where used
-        finding_obj = current_app.db.session.get(ContainerFinding, finding_id)
+        from backend.models.container_models import ContainerFinding # Import model where used
+        finding_obj = db.session.get(ContainerFinding, finding_id)
         if finding_obj:
             finding_data = finding_obj.to_dict()
         else:
@@ -139,8 +142,8 @@ def analyze_finding_with_llm(scan_type: str, finding_id: int):
         if finding_obj and hasattr(finding_obj, 'llm_analysis_content') and hasattr(finding_obj, 'llm_analysis_prompt_hash'):
             finding_obj.llm_analysis_content = llm_analysis
             finding_obj.llm_analysis_prompt_hash = current_prompt_hash
-            current_app.db.session.add(finding_obj) # Add back to session in case it detached
-            current_app.db.session.commit()
+            db.session.add(finding_obj) # Add back to session in case it detached
+            db.session.commit()
             current_app.logger.info(f"LLM analysis generated and saved for finding ID {finding_id}.")          
         else:
             current_app.logger.warning(f"Finding object for {scan_type} ID {finding_id} does not support LLM analysis fields. Analysis not saved to DB.")

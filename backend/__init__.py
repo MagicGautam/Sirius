@@ -33,7 +33,6 @@ def create_app(config_class):
 
     app.sast_service = SastService(db)
     app.llm_service = LLMService(ollama_url="http://localhost:11434", model_name="gemma3:1b")
-    app.llm_service = LLMService(cache) # Pass cache to LLMService
     #app.container_service = ContainerService(db) # Initialize new container service
     #app.cve_enrichment_service = CVEEnrichmentService(db) # Initialize new CVE enrichment service
 
