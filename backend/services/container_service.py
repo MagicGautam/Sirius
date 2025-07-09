@@ -3,6 +3,7 @@ from backend.models import db
 import logging
 import json
 import hashlib
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +53,7 @@ class ContainerService:
             artifact_name=artifact_name,
             image_digest=image_digest,
             os_family=os_family,
-            os_name=os_name
-            report_hash=report_hash,
+            os_name=os_name,
             scan_timestamp=report_data.get('CreatedAt', None)
         )
 
@@ -63,3 +63,120 @@ class ContainerService:
         logger.info(f"New container scan record created for image '{artifact_name}' (ID: {new_scan.id}).")
 
         # Process findings
+
+        results= report_data.get('Results', [])
+        for result in results:
+            target = result.get('Target') # Target is the file or directory where the vulnerability was found
+            vulnerabilities = result.get('Vulnerabilities', []) # List of vulnerabilities found in the target
+            total_findings_in_report += len(vulnerabilities)
+
+            for vulnerability in vulnerabilities:
+                finding_id = vulnerability.get('VulnerabilityID')
+                if not finding_id:
+                    logger.warning(f"Skipping finding with no VulnerabilityID in target '{target}'.")
+                    continue
+                
+                # Check if this finding already exists
+                existing_finding = self.db.session.query(ContainerFinding).filter_by(
+                    scan_id=new_scan.id,
+                    vulnerability_id=finding_id
+                ).first()
+
+                if existing_finding:
+                    logger.debug(f"Finding {finding_id} already exists for scan ID {new_scan.id}. Skipping ingestion.")
+                    continue
+
+                vulnerability_id = vulnerability.get('VulnerabilityID')
+                pkg_name = vulnerability.get('PkgName')
+                installed_version = vulnerability.get('InstalledVersion')
+                fixed_version = vulnerability.get('FixedVersion')
+                severity = vulnerability.get('Severity')
+                title = vulnerability.get('Title')
+                description = vulnerability.get('Description')
+                primary_url = vulnerability.get('PrimaryURL')
+                published_date_str = vulnerability.get('PublishedDate')
+                last_modified_date_str = vulnerability.get('LastModifiedDate')
+                
+                published_date = datetime.fromisoformat(published_date_str.replace('Z', '+00:00')) if published_date_str else None
+                last_modified_date = datetime.fromisoformat(last_modified_date_str.replace('Z', '+00:00')) if last_modified_date_str else None
+
+                cvss_nvd_v2_vector = None
+                cvss_nvd_v2_score = None
+                cvss_nvd_v3_vector = None
+                cvss_nvd_v3_score = None
+
+                cvss_metrics = vulnerability.get('CVSS', [])
+                for cvss in cvss_metrics:
+                    if cvss.get('V2Vector'):
+                        cvss_nvd_v2_vector = cvss.get('V2Vector')
+                        cvss_nvd_v2_score = cvss.get('V2Score')
+                    if cvss.get('V3Vector'):
+                        cvss_nvd_v3_vector = cvss.get('V3Vector')
+                        cvss_nvd_v3_score = cvss.get('V3Score')
+
+
+                # Create a unique key for the finding within the scan to prevent exact duplicates per scan
+                # This unique key is for in-report deduplication if Trivy somehow sends the same vuln twice in one report
+                # The DB unique constraint (`_trivy_finding_uc`) handles across-report deduplication for findings.
+                unique_finding_key_components = [
+                    vulnerability_id, pkg_name, installed_version, new_scan.id
+                ]
+                unique_finding_key = hashlib.sha256(json.dumps(unique_finding_key_components, sort_keys=True).encode('utf-8')).hexdigest()
+
+
+                # Create a new finding
+                new_finding = ContainerFinding(
+                    scan_id=new_scan.id,
+                    vulnerability_id=vulnerability_id,
+                    pkg_name=pkg_name,
+                    installed_version=installed_version,
+                    fixed_version=fixed_version,
+                    severity=severity,
+                    title=title,
+                    description=description,
+                    primary_url=primary_url,
+                    cvss_nvd_v2_vector=cvss_nvd_v2_vector,
+                    cvss_nvd_v2_score=cvss_nvd_v2_score,
+                    cvss_nvd_v3_vector=cvss_nvd_v3_vector,
+                    cvss_nvd_v3_score=cvss_nvd_v3_score,
+                    published_date=published_date,
+                    last_modified_date=last_modified_date,
+                    unique_finding_key=unique_finding_key
+                )
+                self.db.session.add(new_finding)
+                newly_ingested_findings += 1    
+
+        new_scan.total_vulnerabilities_found = newly_ingested_findings
+        self.db.session.add(new_scan) # Re-add to ensure total_vulnerabilities_found update is tracked
+        
+        self.db.session.commit()
+        logger.info(f"Ingested {newly_ingested_findings} new container findings for scan ID {new_scan.id}.")
+
+        return newly_ingested_findings, total_findings_in_report
+
+
+def get_all_findings(self):
+    """Retrieve all container findings."""
+
+    findings = self.db.session.query(ContainerFinding).all()
+    return [f.todict()  for f in findings]
+
+def get_findings_by_scan_id(self, scan_id): 
+    """Retrieve all findings for a specific scan ID."""
+    
+    findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan_id).all()
+    return [f.todict() for f in findings]
+
+def get_scan_by_id(self, scan_id: int):
+        """Retrieves a specific container scan by ID."""
+        scan = self.db.session.get(ContainerScan, scan_id)
+        return scan.to_dict() if scan else None
+
+def get_findings_for_scan(self, scan_id: int):
+        """Retrieves all findings for a specific container scan."""
+        findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan_id).all()
+        return [f.to_dict() for f in findings] if findings else []   
+
+
+                
+                

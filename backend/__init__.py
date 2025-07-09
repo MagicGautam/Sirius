@@ -27,12 +27,12 @@ def create_app(config_class):
 
         from backend.services.sast_service import SastService
         from backend.services.llm_service import LLMService
-        #from backend.services.container_service import ContainerService # Ensure this file exists and class is defined
+        from backend.services.container_service import ContainerService # Ensure this file exists and class is defined
         #from backend.services.cve_enrichment_service import CVEEnrichmentService # Ensure this file exists and class is defined
 
     app.sast_service = SastService(db)
     app.llm_service = LLMService(ollama_url="http://localhost:11434", model_name="gemma3:1b")
-    #app.container_service = ContainerService(db) # Initialize new container service
+    app.container_service = ContainerService(db) # Initialize new container service
     #app.cve_enrichment_service = CVEEnrichmentService(db) # Initialize new CVE enrichment service
 
     from .routes import api_bp
