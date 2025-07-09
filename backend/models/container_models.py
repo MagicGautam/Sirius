@@ -1,7 +1,7 @@
 # backend/Container_models.py
 
 from datetime import datetime
-from backend.models import db # Assuming your db object is initialized in __init__.py and imported like this
+from backend.models import db
 import hashlib # For hashing scan reports
 
 class ContainerScan(db.Model):

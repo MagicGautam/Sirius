@@ -25,7 +25,6 @@ def create_app(config_class):
 
     with app.app_context():
 
-        from backend.models.sast_models import SastFinding
         from backend.services.sast_service import SastService
         from backend.services.llm_service import LLMService
         #from backend.services.container_service import ContainerService # Ensure this file exists and class is defined
