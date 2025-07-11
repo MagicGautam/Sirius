@@ -20,6 +20,18 @@ class ContainerScan(db.Model):
 
     def __repr__(self):
         return f"<ContainerScan {self.id} - {self.image_name} @ {self.scan_timestamp}>"
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'scan_timestamp': self.scan_timestamp.isoformat() if self.scan_timestamp else None,
+            'image_name': self.image_name,
+            'image_digest': self.image_digest,
+            'os_family': self.os_family,
+            'os_name': self.os_name,
+            'total_vulnerabilities_found': self.total_vulnerabilities_found,
+            'report_hash': self.report_hash
+        }
 
 class ContainerFinding(db.Model):
     __bind_key__ = 'container_db' 
@@ -55,6 +67,30 @@ class ContainerFinding(db.Model):
 
     def __repr__(self):
         return f"<ContainerFinding {self.id} - {self.vulnerability_id} in {self.pkg_name} ({self.installed_version})>"
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'scan_id': self.scan_id,
+            'vulnerability_id': self.vulnerability_id,
+            'pkg_name': self.pkg_name,
+            'installed_version': self.installed_version,
+            'fixed_version': self.fixed_version,
+            'severity': self.severity,
+            'title': self.title,
+            'description': self.description,
+            'primary_url': self.primary_url,
+            'cvss_nvd_v2_vector': self.cvss_nvd_v2_vector,
+            'cvss_nvd_v2_score': self.cvss_nvd_v2_score,
+            'cvss_nvd_v3_vector': self.cvss_nvd_v3_vector,
+            'cvss_nvd_v3_score': self.cvss_nvd_v3_score,
+            'published_date': self.published_date.isoformat() if self.published_date else None,
+            'last_modified_date': self.last_modified_date.isoformat() if self.last_modified_date else None,
+            'unique_finding_key': self.unique_finding_key,
+            'cve_enrichment_id': self.cve_enrichment_id # Include this if you intend to use it in API responses
+            # 'cve_enrichment': self.cve_enrichment.to_dict() if self.cve_enrichment else None # Optionally, nest related CVE data
+        }
+
 
 class CVERichment(db.Model):
     __bind_key__ = 'container_db' 
@@ -72,3 +108,17 @@ class CVERichment(db.Model):
 
     def __repr__(self):
         return f"<CVERichment {self.cve_id}>"
+    
+    def to_dict(self):
+        return {
+            'cve_id': self.cve_id,
+            'description': self.description,
+            'cvss_v3_score': self.cvss_v3_score,
+            'cvss_v3_vector': self.cvss_v3_vector,
+            'cvss_v2_score': self.cvss_v2_score,
+            'cvss_v2_vector': self.cvss_v2_vector,
+            'cwe_id': self.cwe_id,
+            'published_date': self.published_date.isoformat() if self.published_date else None,
+            'last_modified_date': self.last_modified_date.isoformat() if self.last_modified_date else None,
+            'nvd_url': self.nvd_url
+        }

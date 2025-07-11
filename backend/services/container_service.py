@@ -50,7 +50,7 @@ class ContainerService:
 
         new_scan = ContainerScan(
             report_hash=report_hash,
-            artifact_name=artifact_name,
+            image_name=artifact_name,
             image_digest=image_digest,
             os_family=os_family,
             os_name=os_name,
@@ -106,14 +106,24 @@ class ContainerService:
                 cvss_nvd_v3_score = None
 
                 cvss_metrics = vulnerability.get('CVSS', [])
+                if not isinstance(cvss_metrics, list): # If CVSS is not a list, it's malformed or single dict
+                    logger.warning(f"CVSS metrics for {finding_id} is not a list, type: {type(cvss_metrics)}. Attempting to treat as single item.")
+                    if isinstance(cvss_metrics, dict):
+                        cvss_metrics = [cvss_metrics] # Wrap single dict in list
+                    else:
+                        cvss_metrics = [] # If it's a string or other, just empty it
+                
                 for cvss in cvss_metrics:
+                    if not isinstance(cvss, dict): # <--- **THE MAIN FIX**
+                        logger.warning(f"Skipping non-dict item in 'CVSS' list for {finding_id}: {type(cvss)} - {cvss}")
+                        continue # Skip to the next item if it's not a dictionary
+
                     if cvss.get('V2Vector'):
                         cvss_nvd_v2_vector = cvss.get('V2Vector')
                         cvss_nvd_v2_score = cvss.get('V2Score')
                     if cvss.get('V3Vector'):
                         cvss_nvd_v3_vector = cvss.get('V3Vector')
                         cvss_nvd_v3_score = cvss.get('V3Score')
-
 
                 # Create a unique key for the finding within the scan to prevent exact duplicates per scan
                 # This unique key is for in-report deduplication if Trivy somehow sends the same vuln twice in one report
@@ -155,27 +165,27 @@ class ContainerService:
         return newly_ingested_findings, total_findings_in_report
 
 
-def get_all_findings(self):
-    """Retrieve all container findings."""
+    def get_all_findings(self):
+        """Retrieve all container findings."""
 
-    findings = self.db.session.query(ContainerFinding).all()
-    return [f.todict()  for f in findings]
+        findings = self.db.session.query(ContainerFinding).all()
+        return [f.to_dict()  for f in findings]
 
-def get_findings_by_scan_id(self, scan_id): 
-    """Retrieve all findings for a specific scan ID."""
-    
-    findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan_id).all()
-    return [f.todict() for f in findings]
-
-def get_scan_by_id(self, scan_id: int):
-        """Retrieves a specific container scan by ID."""
-        scan = self.db.session.get(ContainerScan, scan_id)
-        return scan.to_dict() if scan else None
-
-def get_findings_for_scan(self, scan_id: int):
-        """Retrieves all findings for a specific container scan."""
+    def get_findings_by_scan_id(self, scan_id): 
+        """Retrieve all findings for a specific scan ID."""
+        
         findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan_id).all()
-        return [f.to_dict() for f in findings] if findings else []   
+        return [f.to_dict() for f in findings]
+
+    def get_scan_by_id(self, scan_id: int):
+            """Retrieves a specific container scan by ID."""
+            scan = self.db.session.get(ContainerScan, scan_id)
+            return scan.to_dict() if scan else None
+
+    def get_findings_for_scan(self, scan_id: int):
+            """Retrieves all findings for a specific container scan."""
+            findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan_id).all()
+            return [f.to_dict() for f in findings] if findings else []   
 
 
                 

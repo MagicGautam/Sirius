@@ -11,10 +11,10 @@ logger= logging.getLogger(__name__)
 
 def create_app(config_class):
     app = Flask(__name__)
-    app.config.from_object(config_class)
+   
 
     db_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'databases')
-
+    app.config.from_object(config_class)
     if not os.path.exists(db_folder):
         os.makedirs(db_folder)
         logger.info(f"Created databases directory at {db_folder}")
@@ -29,7 +29,8 @@ def create_app(config_class):
         from backend.services.llm_service import LLMService
         from backend.services.container_service import ContainerService # Ensure this file exists and class is defined
         #from backend.services.cve_enrichment_service import CVEEnrichmentService # Ensure this file exists and class is defined
-
+        db.create_all() 
+        
     app.sast_service = SastService(db)
     app.llm_service = LLMService(ollama_url="http://localhost:11434", model_name="gemma3:1b")
     app.container_service = ContainerService(db) # Initialize new container service
