@@ -71,11 +71,50 @@ class LLMService:
         - Analysis (start yourreponse here):"""
         return prompt
     
+    def _generate_container_prompt(self, container_finding: dict) -> str:
+        """
+        Generates a detailed prompt for a Container vulnerability report,
+        with instructions to keep the output direct and devoid of conversational filler.
+        """
+        prompt = f"""Analyze the following Container vulnerability report. Provide only the requested information.
+        DO NOT include any conversational phrases, introductory remarks, or concluding statements.
+        Be direct, concise, and technical.
+
+        Your response should be structured strictly using the following Markdown headings:
+
+        ### Vulnerability Summary
+        [Provide a concise, technical summary of the vulnerability.]
+
+        ### Security Implications
+        [Explain the clear security implications and potential impact if exploited.]
+
+        ### Remediation
+        [Provide specific, actionable steps to remediate this container vulnerability. This may involve upgrading packages, using a different base image, or applying configuration changes.]
+
+        Vulnerability Details:
+        - Vulnerability ID: {container_finding.get('vulnerability_id', 'N/A')}
+        - Package Name: {container_finding.get('pkg_name', 'N/A')}
+        - Installed Version: {container_finding.get('installed_version', 'N/A')}
+        - Fixed Version: {container_finding.get('fixed_version', 'None Available')}
+        - Severity: {container_finding.get('severity', 'N/A')}
+        - Title: {container_finding.get('title', 'No title provided by scanner.')}
+        - Description: {container_finding.get('description', 'No description provided by scanner.')}
+        - Primary URL: {container_finding.get('primary_url', 'N/A')}
+        - CVSS v3 Score: {container_finding.get('cvss_nvd_v3_score', 'N/A')} (Vector: {container_finding.get('cvss_nvd_v3_vector', 'N/A')})
+        - CVSS v2 Score: {container_finding.get('cvss_nvd_v2_score', 'N/A')} (Vector: {container_finding.get('cvss_nvd_v2_vector', 'N/A')})
+        - Published Date: {container_finding.get('published_date', 'N/A')}
+        - Last Modified Date: {container_finding.get('last_modified_date', 'N/A')}
+        - Associated Scan ID: {container_finding.get('scan_id', 'N/A')}
+        - Analysis (start yourreponse here):"""
+        return prompt
+    
 
     def generate_prompt(self, scan_type: str, finding_data: dict) -> str:
         """ Dispatches to the appropriate prompt generation method based on scan_type."""
         if scan_type == "sast":
             return self._generate_sast_prompt(finding_data)
+        elif scan_type == "container":
+            return self._generate_container_prompt(finding_data)
         elif scan_type == "dast":
             logger.warning("DAST prompt generation not fully implemented yet.")
             return f"Analyze this DAST finding: {json.dumps(finding_data, indent=2)}"
