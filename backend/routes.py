@@ -3,7 +3,7 @@ import logging
 import hashlib
 from backend.models import db
 from backend.models.sast_models import SastFinding
-# from backend.models.container_models import ContainerFinding # Uncomment when ready
+from backend.models.container_models import ContainerFinding # Uncomment when ready
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 def ingest_report(scan_type):
     # Access services and logger via current_app
     sast_service = current_app.sast_service
-    container_service = current_app.container_service # Assuming you'll add this soon
+    container_service = current_app.container_service 
     current_app.logger.debug(f"Ingest API called for scan_type: {scan_type}")
 
     if not request.is_json:
@@ -32,17 +32,15 @@ def ingest_report(scan_type):
     try:
         new_count, total_count = 0, 0
         if scan_type == 'sast':
-            # print removed, use logger debug
             current_app.logger.debug(f"Calling sast_service.ingest_semgrep_report with dict keys: {report_data.keys()}")
             new_count, total_count = sast_service.ingest_semgrep_report(report_data)
             current_app.logger.info(f"Ingested {new_count} new SAST findings.")
             message = f"Successfully ingested {new_count} new SAST findings (out of {total_count} in report)."
         elif scan_type == 'container':
-            # This is where you would call your container_service
             current_app.logger.debug(f"Calling container_service.ingest_trivy_report with dict keys: {report_data.keys()}")
-            # new_count, total_count = container_service.ingest_trivy_report(report_data) # Uncomment when implemented
-            message = "Container report ingestion not yet fully implemented, but received." # Placeholder
-            current_app.logger.info(f"Received container report, placeholder response.")
+            new_count, total_count = container_service.ingest_trivy_report(report_data) 
+            current_app.logger.info(f"Ingested {new_count} new Container findings.")
+            message = f"Successfully ingested {new_count} new Container findings (out of {total_count} in report)."
         else:
             current_app.logger.warning(f"Unsupported scan type for ingestion: {scan_type}")
             return jsonify({"error": f"Unsupported scan type '{scan_type}' for ingestion."}), 400
@@ -61,15 +59,14 @@ def ingest_report(scan_type):
 def get_findings(scan_type):
     # Access services via current_app
     sast_service = current_app.sast_service
-    # container_service = current_app.container_service # Uncomment when ready
+    container_service = current_app.container_service 
 
     if scan_type == 'sast':
         findings = sast_service.get_all_findings()
         return jsonify(findings), 200
     elif scan_type == 'container':
-        # FUTURE: Placeholder for container findings retrieval
-        # findings = container_service.get_all_findings() # Uncomment when implemented
-        return jsonify({"error": f"Retrieval for scan type '{scan_type}' not yet implemented."}), 501 # Not Implemented
+        findings = container_service.get_all_findings()
+        return jsonify(findings), 200 
     else:
         return jsonify({"error": f"Retrieval for scan type '{scan_type}' not yet implemented."}), 400
 
