@@ -5,6 +5,7 @@
 /backend/models/__pycache__
 /backend/services/__pycache__
 /backend/databases
+/backend/databases/container.db
 /backend/instance
 *.pyc
 *.pyo
