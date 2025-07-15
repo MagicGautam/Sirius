@@ -58,9 +58,10 @@ class ContainerFinding(db.Model):
 
     llm_analysis_summary = db.Column(db.Text)
     llm_analysis_recommendations = db.Column(db.Text)
-    llm_analysis_risk_score = db.Column(db.Float) # Or db.Integer, depending on the score type
+    llm_analysis_risk_score = db.Column(db.Float)
     llm_analysis_timestamp = db.Column(db.DateTime)
-    llm_analysis_status = db.Column(db.String(50)) # e.g., 'completed', 'failed', 'pending'
+    llm_analysis_status = db.Column(db.String(50))
+    llm_analysis_prompt_hash = db.Column(db.String(64))
     
 
     unique_finding_key = db.Column(db.String(64), unique=False, nullable=False)
@@ -98,7 +99,8 @@ class ContainerFinding(db.Model):
             'llm_analysis_recommendations': self.llm_analysis_recommendations,
             'llm_analysis_risk_score': self.llm_analysis_risk_score,
             'llm_analysis_timestamp': self.llm_analysis_timestamp.isoformat() if self.llm_analysis_timestamp else None,
-            'llm_analysis_status': self.llm_analysis_status
+            'llm_analysis_status': self.llm_analysis_status,
+            'llm_analysis_prompt_hash': self.llm_analysis_prompt_hash
            #'cve_enrichment_id': self.cve_enrichment_id # Include this if you intend to use it in API responses
            #'cve_enrichment': self.cve_enrichment.to_dict() if self.cve_enrichment else None # Optionally, nest related CVE data
         }

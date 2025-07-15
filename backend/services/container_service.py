@@ -4,13 +4,20 @@ import logging
 import json
 import hashlib
 from datetime import datetime
+from backend.services.llm_service import LLMService 
 
 logger = logging.getLogger(__name__)
 
 class ContainerService:
 
-    def __init__(self, db_instance):
+    def __init__(self, db_instance, llm_service: LLMService= None):
         self.db=db_instance
+        self.llm_service=llm_service
+        if not self.llm_service:
+            # Initialize with default if not provided (e.g., for testing or if Flask app handles init)
+            logger.warning("LLMService not provided to ContainerService. Initializing default.")
+            self.llm_service = LLMService() # This will attempt connection to Ollama immediately
+
 
     def ingest_trivy_report(self, report_data):
         
@@ -186,7 +193,89 @@ class ContainerService:
             """Retrieves all findings for a specific container scan."""
             findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan_id).all()
             return [f.to_dict() for f in findings] if findings else []   
+    
+    
+    def get_or_generate_llm_analysis_for_finding(self, finding_id: int):
+        """
+        Retrieves cached LLM analysis for a finding or generates a new one if not
+        cached, expired, or prompt has changed.
+        """
+        logger.info(f"Received request to analyze container finding ID: {finding_id} with LLM via Ollama.")
 
+        finding = self.db.session.get(ContainerFinding, finding_id) # Use .get for primary key lookup
+        if not finding:
+            logger.warning(f"Container finding with ID {finding_id} not found.")
+            return None, 404 # Return None and a 404 status
+
+        # Generate the current prompt based on the finding's data
+        current_prompt = self.llm_service.generate_prompt("container", finding.to_dict())
+        current_prompt_hash = hashlib.sha256(current_prompt.encode('utf-8')).hexdigest()
+
+        # Cache Invalidation Logic
+        # Define cache expiration (e.g., 7 days)
+        cache_expiration_days = 7
+        cache_expired_time = datetime.utcnow() - timedelta(days=cache_expiration_days)
+
+        # Check if cache is valid
+        is_cached_and_valid = (
+            finding.llm_analysis_status == 'completed' and
+            finding.llm_analysis_timestamp and
+            finding.llm_analysis_timestamp > cache_expired_time and
+            finding.llm_analysis_prompt_hash == current_prompt_hash
+        )
+
+        if is_cached_and_valid:
+            logger.info(f"LLM analysis for finding ID {finding_id} found in cache and is valid.")
+            return {
+                "id": finding.id,
+                "llm_analysis_summary": finding.llm_analysis_summary,
+                "llm_analysis_recommendations": finding.llm_analysis_recommendations,
+                "llm_analysis_risk_score": finding.llm_analysis_risk_score,
+                "llm_analysis_timestamp": finding.llm_analysis_timestamp.isoformat(),
+                "llm_analysis_status": finding.llm_analysis_status
+            }, 200 # Return cached data and 200 status
+        else:
+            logger.info(f"LLM analysis for finding ID {finding_id} not cached or prompt mismatch. Generating new analysis.")
+            if not self.llm_service.is_loaded():
+                logger.error("LLM service is not loaded. Cannot generate analysis.")
+                # You might want to update status to 'failed' if this happens frequently
+                return {"message": "LLM service is not available. Please check Ollama server."}, 503
+
+            # Update status to pending before generation
+            finding.llm_analysis_status = 'pending'
+            self.db.session.add(finding)
+            self.db.session.commit() # Commit to save pending status
+
+            try:
+                llm_analysis_data = self.llm_service.generate_analysis(current_prompt)
+
+                finding.llm_analysis_summary = llm_analysis_data.get('summary')
+                finding.llm_analysis_recommendations = llm_analysis_data.get('recommendations')
+                finding.llm_analysis_risk_score = llm_analysis_data.get('risk_score') # Will be None for now
+                finding.llm_analysis_timestamp = datetime.utcnow()
+                finding.llm_analysis_status = 'completed'
+                finding.llm_analysis_prompt_hash = current_prompt_hash # Save the hash of the prompt that generated this analysis
+
+                self.db.session.add(finding)
+                self.db.session.commit()
+                logger.info(f"LLM analysis for finding ID {finding_id} successfully generated and saved to DB.")
+
+                return {
+                    "id": finding.id,
+                    "llm_analysis_summary": finding.llm_analysis_summary,
+                    "llm_analysis_recommendations": finding.llm_analysis_recommendations,
+                    "llm_analysis_risk_score": finding.llm_analysis_risk_score,
+                    "llm_analysis_timestamp": finding.llm_analysis_timestamp.isoformat(),
+                    "llm_analysis_status": finding.llm_analysis_status
+                }, 200
+
+            except Exception as e:
+                self.db.session.rollback() # Rollback in case of error
+                finding.llm_analysis_status = 'failed'
+                self.db.session.add(finding)
+                self.db.session.commit()
+                logger.error(f"Failed to generate or save LLM analysis for finding ID {finding_id}: {e}", exc_info=True)
+                return {"message": f"Error generating LLM analysis: {e}"}, 500
 
                 
                 

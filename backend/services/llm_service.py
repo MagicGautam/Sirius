@@ -124,62 +124,71 @@ class LLMService:
         else:
             raise ValueError(f"Unsupported scan type for LLM analysis: {scan_type}")
 
-    def generate_analysis(self, prompt_text: str, max_tokens: int = 700) -> str:
+    def _parse_llm_output(self, llm_raw_output: str) -> dict:
         """
-        Generates an LLM-based analysis using the Ollama API.
-        Args:
-            prompt_text (str): The crafted prompt for the LLM.
-            max_tokens (int): The maximum number of tokens to generate.
-        Returns:
-            str: The LLM's generated analysis.
+        Parses the raw LLM output string to extract structured information
+        based on the predefined Markdown headings.
         """
-        if not self.is_loaded():
-            logger.error("Ollama connection not established. Cannot generate analysis.")
-            return "Error: LLM service is not ready. Please ensure Ollama is running."
-
-        # Ollama API endpoint for generation
-        generate_url = f"{self.ollama_url}/api/generate"
-        
-        # Parameters for Ollama API
-        payload = {
-            "model": self.model_name,
-            "prompt": prompt_text,
-            "stream": False,  # We want the full response at once
-            "options": {
-                "num_predict": max_tokens, # Max tokens to generate
-                "temperature": 0.7,
-                "top_k": 50,
-                "top_p": 0.95,
-                # "repeat_penalty": 1.1 # Optional: Can help prevent repetition
-            }
+        parsed_data = {
+            'summary': "No summary generated.",
+            'recommendations': "No recommendations generated.",
+            'risk_score': None # Will try to extract a number later
         }
 
-        logger.info(f"Sending request to Ollama for analysis (model: {self.model_name}, prompt_len: {len(prompt_text)}).")
-        try:
-            response = requests.post(generate_url, json=payload, timeout=300) # 5 minute timeout
-            response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
-            
-            result = response.json()
-            # Ollama's /api/generate returns a 'response' field with the generated text
-            llm_output = result.get('response', '').strip()
+        # Regex patterns to find sections based on Markdown headings
+        summary_match = re.search(r'### Vulnerability Summary\s*(.*?)(?=\n###|\Z)', llm_raw_output, re.DOTALL)
+        if summary_match:
+            parsed_data['summary'] = summary_match.group(1).strip()
 
-            # Ollama models don't typically repeat the prompt like HuggingFace Transformers directly
-            # but if it does, this ensures it's removed.
-            if llm_output.startswith(prompt_text):
-                llm_output = llm_output[len(prompt_text):].strip()
-
-            logger.info("Ollama analysis generated successfully.")
-            return llm_output
-        except requests.exceptions.Timeout:
-            logger.error("Ollama generation request timed out.")
-            return "Error: LLM generation timed out. Ollama took too long to respond."
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error communicating with Ollama: {e}", exc_info=True)
-            return f"Error connecting to Ollama: {e}. Check if Ollama server is running."
-        except json.JSONDecodeError:
-            logger.error("Failed to decode JSON response from Ollama.", exc_info=True)
-            return "Error: Invalid JSON response from Ollama."
-        except Exception as e:
-            logger.error(f"An unexpected error occurred during Ollama generation: {e}", exc_info=True)
-            return f"Error during LLM analysis: {e}. Check server logs."
+        recommendations_match = re.search(r'### Remediation\s*(.*?)(?=\n###|\Z)', llm_raw_output, re.DOTALL)
+        if recommendations_match:
+            parsed_data['recommendations'] = recommendations_match.group(1).strip()
             
+        # Optional: Extract a risk score if you want to include it in the LLM's output
+        # You'll need to update your prompt to explicitly ask for a risk score
+        # For now, we'll keep it simple and expect it later if the prompt is modified.
+        # Example if prompt includes "### Risk Score: [1-10]"
+        # risk_score_match = re.search(r'### Risk Score:\s*(\d+(\.\d+)?)(?=\n|\Z)', llm_raw_output)
+        # if risk_score_match:
+        #     try:
+        #         parsed_data['risk_score'] = float(risk_score_match.group(1))
+        #     except ValueError:
+        #         logger.warning(f"Could not parse risk score: {risk_score_match.group(1)}")
+
+
+        return parsed_data
+    
+    
+    def _parse_llm_output(self, llm_raw_output: str) -> dict:
+        """
+        Parses the raw LLM output string to extract structured information
+        based on the predefined Markdown headings.
+        """
+        parsed_data = {
+            'summary': "No summary generated.",
+            'recommendations': "No recommendations generated.",
+            'risk_score': None # Will try to extract a number later
+        }
+
+        # Regex patterns to find sections based on Markdown headings
+        summary_match = re.search(r'### Vulnerability Summary\s*(.*?)(?=\n###|\Z)', llm_raw_output, re.DOTALL)
+        if summary_match:
+            parsed_data['summary'] = summary_match.group(1).strip()
+
+        recommendations_match = re.search(r'### Remediation\s*(.*?)(?=\n###|\Z)', llm_raw_output, re.DOTALL)
+        if recommendations_match:
+            parsed_data['recommendations'] = recommendations_match.group(1).strip()
+            
+        # Optional: Extract a risk score if you want to include it in the LLM's output
+        # You'll need to update your prompt to explicitly ask for a risk score
+        # For now, we'll keep it simple and expect it later if the prompt is modified.
+        # Example if prompt includes "### Risk Score: [1-10]"
+        # risk_score_match = re.search(r'### Risk Score:\s*(\d+(\.\d+)?)(?=\n|\Z)', llm_raw_output)
+        # if risk_score_match:
+        #     try:
+        #         parsed_data['risk_score'] = float(risk_score_match.group(1))
+        #     except ValueError:
+        #         logger.warning(f"Could not parse risk score: {risk_score_match.group(1)}")
+
+
+        return parsed_data            

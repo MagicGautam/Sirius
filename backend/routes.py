@@ -4,10 +4,19 @@ import hashlib
 from backend.models import db
 from backend.models.sast_models import SastFinding
 from backend.models.container_models import ContainerFinding # Uncomment when ready
+from backend.services.llm_service import LLMService # Import LLMService
+from backend.models import db # Import db instance from models to pass to services
+
+
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 logger = logging.getLogger(__name__)
+llm_service_instance = LLMService()
+container_service_instance = ContainerService(db, llm_service_instance) # Pass llm_service_instance here
+
+
+
 
 @api_bp.route('/ingest/<scan_type>', methods=['POST'])
 def ingest_report(scan_type):
@@ -154,3 +163,18 @@ def analyze_finding_with_llm(scan_type: str, finding_id: int):
 @api_bp.route('/')
 def home():
     return "Sirius is watching!"
+
+
+# Container Vulnerability Analysis Routes
+@llm_bp.route('/analyze/container/<int:finding_id>', methods=['GET'])
+def analyze_container_finding_llm(finding_id):
+    """
+    Triggers LLM analysis for a specific container finding by ID.
+    Retrieves from cache if available and valid, otherwise generates.
+    """
+    analysis_data, status_code = container_service_instance.get_or_generate_llm_analysis_for_finding(finding_id)
+    
+    if analysis_data:
+        return jsonify(analysis_data), status_code
+    else:
+        return jsonify({"message": f"Finding {finding_id} not found or error occurred."}), status_code
