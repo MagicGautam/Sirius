@@ -56,6 +56,13 @@ class ContainerFinding(db.Model):
     published_date = db.Column(db.DateTime)
     last_modified_date = db.Column(db.DateTime)
 
+    llm_analysis_summary = db.Column(db.Text)
+    llm_analysis_recommendations = db.Column(db.Text)
+    llm_analysis_risk_score = db.Column(db.Float) # Or db.Integer, depending on the score type
+    llm_analysis_timestamp = db.Column(db.DateTime)
+    llm_analysis_status = db.Column(db.String(50)) # e.g., 'completed', 'failed', 'pending'
+    
+
     unique_finding_key = db.Column(db.String(64), unique=False, nullable=False)
 
     __table_args__ = (
@@ -87,8 +94,13 @@ class ContainerFinding(db.Model):
             'published_date': self.published_date.isoformat() if self.published_date else None,
             'last_modified_date': self.last_modified_date.isoformat() if self.last_modified_date else None,
             'unique_finding_key': self.unique_finding_key,
-            'cve_enrichment_id': self.cve_enrichment_id # Include this if you intend to use it in API responses
-            # 'cve_enrichment': self.cve_enrichment.to_dict() if self.cve_enrichment else None # Optionally, nest related CVE data
+            'llm_analysis_summary': self.llm_analysis_summary,
+            'llm_analysis_recommendations': self.llm_analysis_recommendations,
+            'llm_analysis_risk_score': self.llm_analysis_risk_score,
+            'llm_analysis_timestamp': self.llm_analysis_timestamp.isoformat() if self.llm_analysis_timestamp else None,
+            'llm_analysis_status': self.llm_analysis_status
+           #'cve_enrichment_id': self.cve_enrichment_id # Include this if you intend to use it in API responses
+           #'cve_enrichment': self.cve_enrichment.to_dict() if self.cve_enrichment else None # Optionally, nest related CVE data
         }
 
 
