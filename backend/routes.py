@@ -6,7 +6,7 @@ from backend.models.sast_models import SastFinding
 from backend.models.container_models import ContainerFinding # Uncomment when ready
 from backend.services.llm_service import LLMService # Import LLMService
 from backend.models import db # Import db instance from models to pass to services
-
+from backend.services.container_service import ContainerService # Import ContainerService
 
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
