@@ -1,192 +1,186 @@
-from backend.models.container_models import ContainerScan, ContainerFinding
-from backend.models import db
+# backend/services/container_service.py
+
 import logging
-import json
-import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
+from hashlib import sha256
+from typing import Dict, Any, Tuple
+
+from backend.models.container_models import ContainerFinding # Assuming this path
 
 logger = logging.getLogger(__name__)
 
 class ContainerService:
+    def __init__(self, db_instance, llm_service=None):
+        self.db = db_instance # This is your Flask-SQLAlchemy 'db' instance
+        self.llm_service = llm_service
+        self.cache_expiration_days = 7 # Example: Cache LLM analysis for 7 days
 
-    def __init__(self, db_instance):
-        self.db=db_instance
+    def get_or_generate_llm_analysis_for_finding(self, finding_id: int) -> Tuple[Dict[str, Any], int]:
+        """
+        Retrieves or generates LLM analysis for a given container finding, with caching.
+        """
+        # Access the session directly via self.db.session
+        finding = self.db.session.query(ContainerFinding).filter_by(id=finding_id).first()
+        if not finding:
+            return {"error": f"Container Finding with ID {finding_id} not found."}, 404
 
-    def ingest_trivy_report(self, report_data):
+        if not self.llm_service or not self.llm_service.is_loaded():
+            logger.error(f"LLM service not available for container finding {finding_id}. Cannot generate analysis.")
+            return {"error": "LLM service is not available. Please check server logs."}, 503
+
+        # Generate prompt and its hash for cache comparison
+        current_prompt = self.llm_service.generate_prompt("container", finding.to_dict())
+        current_prompt_hash = sha256(current_prompt.encode('utf-8')).hexdigest()
+
+        # Check cache validity
+        cache_expired = True
+        if finding.llm_analysis_timestamp and finding.llm_analysis_status == 'completed':
+            cache_expired_time = datetime.utcnow() - timedelta(days=self.cache_expiration_days)
+            if (finding.llm_analysis_timestamp > cache_expired_time and
+                finding.llm_analysis_prompt_hash == current_prompt_hash):
+                cache_expired = False
+                logger.info(f"LLM analysis for container finding ID {finding_id} is cached and valid.")
+                return {
+                    "finding_id": finding.id,
+                    "summary": finding.llm_analysis_summary,
+                    "recommendations": finding.llm_analysis_recommendations,
+                    "risk_score": finding.llm_analysis_risk_score,
+                    "status": finding.llm_analysis_status,
+                    "cached": True
+                }, 200
+
+        # If cache is expired or not present, generate new analysis
+        logger.info(f"LLM analysis for container finding ID {finding_id} not cached or prompt mismatch. Generating new analysis.")
         
-        
+        # Set status to pending before calling LLM
+        finding.llm_analysis_status = "pending"
+        self.db.session.add(finding)
+        self.db.session.commit() # Commit the pending status immediately
+
+        try:
+            llm_analysis_data = self.llm_service.generate_analysis(current_prompt)
+            
+            # Update finding with new analysis data
+            finding.llm_analysis_summary = llm_analysis_data.get('summary')
+            finding.llm_analysis_recommendations = llm_analysis_data.get('recommendations')
+            finding.llm_analysis_risk_score = llm_analysis_data.get('risk_score')
+            finding.llm_analysis_timestamp = datetime.utcnow()
+            finding.llm_analysis_prompt_hash = current_prompt_hash
+            finding.llm_analysis_status = "completed"
+            
+            self.db.session.add(finding)
+            self.db.session.commit() # Commit completed status and new data
+
+            return {
+                "finding_id": finding.id,
+                "summary": finding.llm_analysis_summary,
+                "recommendations": finding.llm_analysis_recommendations,
+                "risk_score": finding.llm_analysis_risk_score,
+                "status": finding.llm_analysis_status,
+                "cached": False
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Failed to generate or save LLM analysis for container finding ID {finding_id}: {e}", exc_info=True)
+            # Set status to failed if an error occurs
+            finding.llm_analysis_status = "failed"
+            finding.llm_analysis_timestamp = datetime.utcnow()
+            self.db.session.add(finding)
+            self.db.session.commit() # Commit failed status
+            return {"error": f"Failed to generate LLM analysis for container finding: {e}"}, 500
+
+    def ingest_trivy_report(self, report_data: Dict[str, Any]) -> Tuple[int, int]:
+        new_findings_count = 0
+
         if report_data is None:
             logger.error("ingest_trivy_report received None for report_data.")
             return 0, 0
         if not isinstance(report_data, dict):
-            logger.error(f"ingest_trivy_report received non-dict report_data: {type(report_data)} - {report_data}")
+            logger.error(f"ingest_trivy_report received non-dict report_data: {type(report_data)}")
             return 0, 0
-        
-        total_findings_in_report = 0
-        newly_ingested_findings = 0
 
-        #Generating the hash for the entire report data for deduplication
-        report_json_string = json.dumps(report_data, sort_keys=True)
-        report_hash = hashlib.sha256(report_json_string.encode('utf-8')).hexdigest()
-        logger.debug(f"Generated report hash: {report_hash}")
+        results = report_data.get('Results', [])
+        total_findings_in_report = sum(len(result.get('Vulnerabilities', [])) for result in results)
 
-        existing_scan = self.db.session.query(ContainerScan).filter_by(report_hash=report_hash).first()
-
-        if existing_scan:
-            logger.info(f"Report with hash {report_hash} already exists. Skipping ingestion.")
-            # Optionally, you could update existing_scan.scan_timestamp here if you want to mark it as "recently seen"
-            # existing_scan.scan_timestamp = datetime.utcnow()
-            # self.db.session.add(existing_scan)
-            # self.db.session.commit()
+        if not results:
+            logger.info("No 'Results' list found or it's empty in the Trivy report.")
             return 0, 0
-        
-        # Extracting metadata from the report
-        artifact_name = report_data.get('ArtifactName', 'unknown_image')
-        metadata = report_data.get('Metadata', {})
-        image_digest = metadata.get('ImageID', report_data.get('ImageID')) # Fallback for older Trivy or other report types
-        os_info = metadata.get('OS', {})
-        os_family = os_info.get('Family')
-        os_name = os_info.get('Name')
 
-        new_scan = ContainerScan(
-            report_hash=report_hash,
-            image_name=artifact_name,
-            image_digest=image_digest,
-            os_family=os_family,
-            os_name=os_name,
-            scan_timestamp=report_data.get('CreatedAt', None)
-        )
-
-        self.db.session.add(new_scan)
-        self.db.session.flush() #Flush to get the new scan ID for findings
-
-        logger.info(f"New container scan record created for image '{artifact_name}' (ID: {new_scan.id}).")
-
-        # Process findings
-
-        results= report_data.get('Results', [])
         for result in results:
-            target = result.get('Target') # Target is the file or directory where the vulnerability was found
-            vulnerabilities = result.get('Vulnerabilities', []) # List of vulnerabilities found in the target
-            total_findings_in_report += len(vulnerabilities)
+            vulnerabilities = result.get('Vulnerabilities', [])
+            for vuln in vulnerabilities:
+                try:
+                    vulnerability_id = vuln.get('VulnerabilityID')
+                    pkg_name = vuln.get('PkgName')
+                    installed_version = vuln.get('InstalledVersion')
+                    fixed_version = vuln.get('FixedVersion', 'None Available')
+                    severity = vuln.get('Severity', 'UNKNOWN').upper()
+                    title = vuln.get('Title', 'No title provided by scanner.')
+                    description = vuln.get('Description', 'No description provided by scanner.')
+                    primary_url = vuln.get('PrimaryURL', 'N/A')
 
-            for vulnerability in vulnerabilities:
-                finding_id = vulnerability.get('VulnerabilityID')
-                if not finding_id:
-                    logger.warning(f"Skipping finding with no VulnerabilityID in target '{target}'.")
-                    continue
-                
-                # Check if this finding already exists
-                existing_finding = self.db.session.query(ContainerFinding).filter_by(
-                    scan_id=new_scan.id,
-                    vulnerability_id=finding_id
-                ).first()
+                    # CVSS metrics
+                    cvss_v3_score = None
+                    cvss_v3_vector = None
+                    cvss_v2_score = None
+                    cvss_v2_vector = None
+                    
+                    if 'CVSS' in vuln:
+                        nvd = vuln['CVSS'].get('nvd', {})
+                        if 'V3Score' in nvd:
+                            cvss_v3_score = nvd['V3Score']
+                        if 'V3Vector' in nvd:
+                            cvss_v3_vector = nvd['V3Vector']
+                        if 'V2Score' in nvd:
+                            cvss_v2_score = nvd['V2Score']
+                        if 'V2Vector' in nvd:
+                            cvss_v2_vector = nvd['V2Vector']
 
-                if existing_finding:
-                    logger.debug(f"Finding {finding_id} already exists for scan ID {new_scan.id}. Skipping ingestion.")
-                    continue
+                    published_date = vuln.get('PublishedDate')
+                    last_modified_date = vuln.get('LastModifiedDate')
 
-                vulnerability_id = vulnerability.get('VulnerabilityID')
-                pkg_name = vulnerability.get('PkgName')
-                installed_version = vulnerability.get('InstalledVersion')
-                fixed_version = vulnerability.get('FixedVersion')
-                severity = vulnerability.get('Severity')
-                title = vulnerability.get('Title')
-                description = vulnerability.get('Description')
-                primary_url = vulnerability.get('PrimaryURL')
-                published_date_str = vulnerability.get('PublishedDate')
-                last_modified_date_str = vulnerability.get('LastModifiedDate')
-                
-                published_date = datetime.fromisoformat(published_date_str.replace('Z', '+00:00')) if published_date_str else None
-                last_modified_date = datetime.fromisoformat(last_modified_date_str.replace('Z', '+00:00')) if last_modified_date_str else None
+                    unique_finding_key = sha256(f"{vulnerability_id}-{pkg_name}-{installed_version}".encode('utf-8')).hexdigest()
 
-                cvss_nvd_v2_vector = None
-                cvss_nvd_v2_score = None
-                cvss_nvd_v3_vector = None
-                cvss_nvd_v3_score = None
+                    existing_finding = self.db.session.query(ContainerFinding).filter_by(unique_finding_key=unique_finding_key).first()
 
-                cvss_metrics = vulnerability.get('CVSS', [])
-                if not isinstance(cvss_metrics, list): # If CVSS is not a list, it's malformed or single dict
-                    logger.warning(f"CVSS metrics for {finding_id} is not a list, type: {type(cvss_metrics)}. Attempting to treat as single item.")
-                    if isinstance(cvss_metrics, dict):
-                        cvss_metrics = [cvss_metrics] # Wrap single dict in list
+                    if not existing_finding:
+                        new_finding = ContainerFinding(
+                            unique_finding_key=unique_finding_key,
+                            vulnerability_id=vulnerability_id,
+                            pkg_name=pkg_name,
+                            installed_version=installed_version,
+                            fixed_version=fixed_version,
+                            severity=severity,
+                            title=title,
+                            description=description,
+                            primary_url=primary_url,
+                            cvss_nvd_v3_score=cvss_v3_score,
+                            cvss_nvd_v3_vector=cvss_v3_vector,
+                            cvss_nvd_v2_score=cvss_v2_score,
+                            cvss_nvd_v2_vector=cvss_v2_vector,
+                            published_date=datetime.fromisoformat(published_date.replace('Z', '+00:00')) if published_date else None,
+                            last_modified_date=datetime.fromisoformat(last_modified_date.replace('Z', '+00:00')) if last_modified_date else None
+                        )
+                        self.db.session.add(new_finding)
+                        new_findings_count += 1
+                        logger.debug(f"Adding new container finding: {unique_finding_key}")
                     else:
-                        cvss_metrics = [] # If it's a string or other, just empty it
-                
-                for cvss in cvss_metrics:
-                    if not isinstance(cvss, dict): # <--- **THE MAIN FIX**
-                        logger.warning(f"Skipping non-dict item in 'CVSS' list for {finding_id}: {type(cvss)} - {cvss}")
-                        continue # Skip to the next item if it's not a dictionary
+                        logger.debug(f"Skipping duplicate container finding: {unique_finding_key}")
 
-                    if cvss.get('V2Vector'):
-                        cvss_nvd_v2_vector = cvss.get('V2Vector')
-                        cvss_nvd_v2_score = cvss.get('V2Score')
-                    if cvss.get('V3Vector'):
-                        cvss_nvd_v3_vector = cvss.get('V3Vector')
-                        cvss_nvd_v3_score = cvss.get('V3Score')
+                except Exception as e:
+                    logger.error(f"Error processing container vulnerability: {e}", exc_info=True)
+                    continue
 
-                # Create a unique key for the finding within the scan to prevent exact duplicates per scan
-                # This unique key is for in-report deduplication if Trivy somehow sends the same vuln twice in one report
-                # The DB unique constraint (`_trivy_finding_uc`) handles across-report deduplication for findings.
-                unique_finding_key_components = [
-                    vulnerability_id, pkg_name, installed_version, new_scan.id
-                ]
-                unique_finding_key = hashlib.sha256(json.dumps(unique_finding_key_components, sort_keys=True).encode('utf-8')).hexdigest()
+        try:
+            self.db.session.commit()
+            logger.info(f"Successfully committed {new_findings_count} new container findings.")
+        except Exception as e:
+            self.db.session.rollback()
+            logger.error(f"Failed to commit container findings to DB: {e}", exc_info=True)
+            return 0, total_findings_in_report
 
-
-                # Create a new finding
-                new_finding = ContainerFinding(
-                    scan_id=new_scan.id,
-                    vulnerability_id=vulnerability_id,
-                    pkg_name=pkg_name,
-                    installed_version=installed_version,
-                    fixed_version=fixed_version,
-                    severity=severity,
-                    title=title,
-                    description=description,
-                    primary_url=primary_url,
-                    cvss_nvd_v2_vector=cvss_nvd_v2_vector,
-                    cvss_nvd_v2_score=cvss_nvd_v2_score,
-                    cvss_nvd_v3_vector=cvss_nvd_v3_vector,
-                    cvss_nvd_v3_score=cvss_nvd_v3_score,
-                    published_date=published_date,
-                    last_modified_date=last_modified_date,
-                    unique_finding_key=unique_finding_key
-                )
-                self.db.session.add(new_finding)
-                newly_ingested_findings += 1    
-
-        new_scan.total_vulnerabilities_found = newly_ingested_findings
-        self.db.session.add(new_scan) # Re-add to ensure total_vulnerabilities_found update is tracked
-        
-        self.db.session.commit()
-        logger.info(f"Ingested {newly_ingested_findings} new container findings for scan ID {new_scan.id}.")
-
-        return newly_ingested_findings, total_findings_in_report
-
+        return new_findings_count, total_findings_in_report
 
     def get_all_findings(self):
-        """Retrieve all container findings."""
-
         findings = self.db.session.query(ContainerFinding).all()
-        return [f.to_dict()  for f in findings]
-
-    def get_findings_by_scan_id(self, scan_id): 
-        """Retrieve all findings for a specific scan ID."""
-        
-        findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan_id).all()
         return [f.to_dict() for f in findings]
-
-    def get_scan_by_id(self, scan_id: int):
-            """Retrieves a specific container scan by ID."""
-            scan = self.db.session.get(ContainerScan, scan_id)
-            return scan.to_dict() if scan else None
-
-    def get_findings_for_scan(self, scan_id: int):
-            """Retrieves all findings for a specific container scan."""
-            findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan_id).all()
-            return [f.to_dict() for f in findings] if findings else []   
-
-
-                
-                

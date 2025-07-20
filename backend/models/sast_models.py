@@ -1,48 +1,56 @@
 # backend/models/sast_models.py
-# This will contain the SQLAlchemy model definition only for SAST findings.
 
-from backend.models import db
 from datetime import datetime
+# Import the shared Base instance
+from backend.models import db
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKey
+from sqlalchemy import UniqueConstraint # Import UniqueConstraint
 
-class SastFinding(db.Model):
-    __tablename__ = 'sast_findings' # Explicit table name
-    __bind_key__ = 'sast_db' # Bind this model to the SAST database
+import hashlib
 
-    id = db.Column(db.Integer, primary_key=True)
-    # No 'scan_type' or 'tool' needed here, as this DB is specifically for SAST/Semgrep
-    finding_id = db.Column(db.String(255), unique=True, nullable=False) # Unique ID for this specific finding instance
-    severity = db.Column(db.String(20)) # e.g., 'HIGH', 'MEDIUM', 'LOW', 'WARNING', 'ERROR'
-    title = db.Column(db.String(255), nullable=False)
-    description = db.Column(db.Text)
-    file_path = db.Column(db.String(255))
-    line_number = db.Column(db.Integer)
-    rule_id = db.Column(db.String(255)) # Original rule ID, e.g., check_id from Semgrep
-    code_snippet = db.Column(db.Text) # The vulnerable line(s) of code
-    suggested_fix = db.Column(db.Text) # Suggested fix from the tool
-    ingested_at = db.Column(db.DateTime, default=datetime.utcnow)
-    # Adding a unique constraint on these columns to prevent exact duplicates
-    __table_args__ = (db.UniqueConstraint('rule_id', 'file_path', 'line_number', 'description', name='_unique_sast_finding_constraint'),)
+class SastFinding(db.Model): # <--- CHANGED: Inherit from Base
+    __tablename__ = 'sast_findings'
+    __bind_key__ = 'sast_db' # <--- NEW/RE-ADDED: Assign bind key for SAST database
 
-    llm_analysis_content = db.Column(db.Text, nullable= True) # LLM-generated analysis or remediation advice
-    llm_analysis_prompt_hash = db.Column(db.String(64), unique=True, nullable=True) # Hash of the prompt used for LLM analysis
-    # No CVE, package_name, version, cvss_score as they are not for SAST
+    id = Column(Integer, primary_key=True)
+    scan_id = Column(String(255), nullable=True) # Assuming scan_id is a unique identifier from the report
+    rule_id = Column(String(255), nullable=False)
+    severity = Column(String(50), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    line_number = Column(Integer, nullable=False)
+    description = Column(Text)
+    code_snippet = Column(Text)
+    scanner_suggested_fix = Column(Text)
+
+    # LLM Analysis fields (nullable to allow for findings without immediate LLM analysis)
+    llm_analysis_summary = Column(Text, nullable=True)
+    llm_analysis_recommendations = Column(Text, nullable=True)
+    llm_analysis_risk_score = Column(Float, nullable=True) # Example: 0.0 to 1.0 or 1-10
+    llm_analysis_timestamp = Column(DateTime, nullable=True)
+    llm_analysis_status = Column(String(50), nullable=True) # E.g., 'pending', 'completed', 'error'
+    llm_analysis_prompt_hash = Column(String(64), nullable=True) # Hash of the prompt used for analysis
+
+    unique_finding_key = Column(String(64), unique=True, nullable=False) # Hash of critical finding data
 
     def __repr__(self):
-        return f"SastFinding('{self.title}', '{self.severity}', '{self.file_path}:{self.line_number}')"
-
+        return f"<SastFinding {self.id} - {self.rule_id} - {self.file_path}:{self.line_number}>"
+    
     def to_dict(self):
         return {
             'id': self.id,
-            'finding_id': self.finding_id,
+            'scan_id': self.scan_id,
+            'rule_id': self.rule_id,
             'severity': self.severity,
-            'title': self.title,
-            'description': self.description,
             'file_path': self.file_path,
             'line_number': self.line_number,
-            'rule_id': self.rule_id,
+            'description': self.description,
             'code_snippet': self.code_snippet,
-            'suggested_fix': self.suggested_fix,
-            'ingested_at': self.ingested_at.isoformat() if self.ingested_at else None,
-            'llm_analysis_content': self.llm_analysis_content,
-            'llm_analysis_prompt_hash': self.llm_analysis_prompt_hash
+            'scanner_suggested_fix': self.scanner_suggested_fix,
+            'llm_analysis_summary': self.llm_analysis_summary,
+            'llm_analysis_recommendations': self.llm_analysis_recommendations,
+            'llm_analysis_risk_score': self.llm_analysis_risk_score,
+            'llm_analysis_timestamp': self.llm_analysis_timestamp.isoformat() if self.llm_analysis_timestamp else None,
+            'llm_analysis_status': self.llm_analysis_status,
+            'llm_analysis_prompt_hash': self.llm_analysis_prompt_hash,
+            'unique_finding_key': self.unique_finding_key
         }
