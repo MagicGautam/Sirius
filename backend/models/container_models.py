@@ -1,22 +1,24 @@
 # backend/Container_models.py
 
 from datetime import datetime
+# Import the single Base instance from backend.models
 from backend.models import db
-import hashlib # For hashing scan reports
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKey, UniqueConstraint
+from sqlalchemy.orm import relationship
 
 class ContainerScan(db.Model):
-    __bind_key__ = 'container_db' 
     __tablename__ = 'container_scans'
-    id = db.Column(db.Integer, primary_key=True)
-    scan_timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    image_name = db.Column(db.String(255), nullable=False)
-    image_digest = db.Column(db.String(255))
-    os_family = db.Column(db.String(50))
-    os_name = db.Column(db.String(50))
-    total_vulnerabilities_found = db.Column(db.Integer, default=0)
-    report_hash = db.Column(db.String(64), unique=True, nullable=False)
+    __bind_key__ = 'container_db' 
+    id = Column(Integer, primary_key=True)
+    scan_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    image_name = Column(String(255), nullable=False)
+    image_digest = Column(String(255))
+    os_family = Column(String(50))
+    os_name = Column(String(50))
+    total_vulnerabilities_found = Column(Integer, default=0)
+    report_hash = Column(String(64), unique=True, nullable=False)
 
-    findings = db.relationship('ContainerFinding', backref='container_scan', lazy=True)
+    findings = relationship('ContainerFinding', backref='container_scan', lazy=True)
 
     def __repr__(self):
         return f"<ContainerScan {self.id} - {self.image_name} @ {self.scan_timestamp}>"
@@ -33,45 +35,44 @@ class ContainerScan(db.Model):
             'report_hash': self.report_hash
         }
 
-class ContainerFinding(db.Model):
-    __bind_key__ = 'container_db' 
+class ContainerFinding(db.Model): 
     __tablename__ = 'container_findings'
-    id = db.Column(db.Integer, primary_key=True)
-    scan_id = db.Column(db.Integer, db.ForeignKey('container_scans.id'), nullable=False)
+    __bind_key__ = 'container_db'
+    id = Column(Integer, primary_key=True)
+    scan_id = Column(Integer, ForeignKey('container_scans.id'), nullable=True)
 
-    vulnerability_id = db.Column(db.String(50), nullable=False)
-    pkg_name = db.Column(db.String(255), nullable=False)
-    installed_version = db.Column(db.String(100), nullable=False)
-    fixed_version = db.Column(db.String(100))
-    severity = db.Column(db.String(20), nullable=False)
-    title = db.Column(db.String(500))
-    description = db.Column(db.Text)
-    primary_url = db.Column(db.String(500))
+    vulnerability_id = Column(String(50), nullable=False)
+    pkg_name = Column(String(255), nullable=False)
+    installed_version = Column(String(100), nullable=False)
+    fixed_version = Column(String(100))
+    severity = Column(String(20), nullable=False)
+    title = Column(String(500))
+    description = Column(Text)
+    primary_url = Column(String(500))
 
-    cvss_nvd_v2_vector = db.Column(db.String(255))
-    cvss_nvd_v2_score = db.Column(db.Float)
-    cvss_nvd_v3_vector = db.Column(db.String(255))
-    cvss_nvd_v3_score = db.Column(db.Float)
+    cvss_nvd_v2_vector = Column(String(255))
+    cvss_nvd_v2_score = Column(Float)
+    cvss_nvd_v3_vector = Column(String(255))
+    cvss_nvd_v3_score = Column(Float)
 
-    published_date = db.Column(db.DateTime)
-    last_modified_date = db.Column(db.DateTime)
+    published_date = Column(DateTime)
+    last_modified_date = Column(DateTime)
 
-    llm_analysis_summary = db.Column(db.Text)
-    llm_analysis_recommendations = db.Column(db.Text)
-    llm_analysis_risk_score = db.Column(db.Float)
-    llm_analysis_timestamp = db.Column(db.DateTime)
-    llm_analysis_status = db.Column(db.String(50))
-    llm_analysis_prompt_hash = db.Column(db.String(64))
+    llm_analysis_summary = Column(Text, nullable=True)
+    llm_analysis_recommendations = Column(Text, nullable=True)
+    llm_analysis_risk_score = Column(Float, nullable=True)
+    llm_analysis_timestamp = Column(DateTime, nullable=True)
+    llm_analysis_status = Column(String(50), nullable=True)
+    llm_analysis_prompt_hash = Column(String(64), nullable=True)
     
-
-    unique_finding_key = db.Column(db.String(64), unique=False, nullable=False)
-
+    unique_finding_key = Column(String(64), unique=False, nullable=False)
+    
     __table_args__ = (
-        db.UniqueConstraint('vulnerability_id', 'pkg_name', 'installed_version', 'scan_id', name='_trivy_finding_uc'),
+        UniqueConstraint('vulnerability_id', 'pkg_name', 'installed_version', 'scan_id', name='_trivy_finding_uc'),
     )
 
-    cve_enrichment_id = db.Column(db.String(50), db.ForeignKey('cve_enrichment.cve_id'), nullable=True)
-    cve_enrichment = db.relationship('CVERichment', backref='container_findings', lazy=True)
+    cve_enrichment_id = Column(String(50), ForeignKey('cve_enrichment.cve_id'), nullable=True)
+    cve_enrichment = relationship('CVERichment', backref='container_findings', lazy=True)
 
     def __repr__(self):
         return f"<ContainerFinding {self.id} - {self.vulnerability_id} in {self.pkg_name} ({self.installed_version})>"
@@ -100,25 +101,24 @@ class ContainerFinding(db.Model):
             'llm_analysis_risk_score': self.llm_analysis_risk_score,
             'llm_analysis_timestamp': self.llm_analysis_timestamp.isoformat() if self.llm_analysis_timestamp else None,
             'llm_analysis_status': self.llm_analysis_status,
-            'llm_analysis_prompt_hash': self.llm_analysis_prompt_hash
-           #'cve_enrichment_id': self.cve_enrichment_id # Include this if you intend to use it in API responses
-           #'cve_enrichment': self.cve_enrichment.to_dict() if self.cve_enrichment else None # Optionally, nest related CVE data
+            'llm_analysis_prompt_hash': self.llm_analysis_prompt_hash,
+            'cve_enrichment_id': self.cve_enrichment_id 
         }
 
 
 class CVERichment(db.Model):
-    __bind_key__ = 'container_db' 
     __tablename__ = 'cve_enrichment'
-    cve_id = db.Column(db.String(50), primary_key=True)
-    description = db.Column(db.Text)
-    cvss_v3_score = db.Column(db.Float)
-    cvss_v3_vector = db.Column(db.String(255))
-    cvss_v2_score = db.Column(db.Float)
-    cvss_v2_vector = db.Column(db.String(255))
-    cwe_id = db.Column(db.String(50))
-    published_date = db.Column(db.DateTime)
-    last_modified_date = db.Column(db.DateTime)
-    nvd_url = db.Column(db.String(500))
+    __bind_key__ = 'container_db' 
+    cve_id = Column(String(50), primary_key=True)
+    description = Column(Text)
+    cvss_v3_score = Column(Float)
+    cvss_v3_vector = Column(String(255))
+    cvss_v2_score = Column(Float)
+    cvss_v2_vector = Column(String(255))
+    cwe_id = Column(String(50))
+    published_date = Column(DateTime)
+    last_modified_date = Column(DateTime)
+    nvd_url = Column(String(500))
 
     def __repr__(self):
         return f"<CVERichment {self.cve_id}>"
