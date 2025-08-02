@@ -67,7 +67,7 @@ def ingest_report(scan_type):
         current_app.logger.error(f"Error ingesting {scan_type} report: {e}", exc_info=True)
         return jsonify({"error": f"Failed to ingest report for {scan_type}. Details: {str(e)}"}), 500    
 
-@api_bp.route('/findings/<scan_type>', methods=['GET'])
+"""@api_bp.route('/findings/<scan_type>', methods=['GET'])
 def get_findings(scan_type):
     # Access services via current_app
     sast_service = current_app.sast_service
@@ -89,6 +89,94 @@ def get_findings(scan_type):
         return jsonify(findings), 200 
     else:
         return jsonify({"error": f"Retrieval for scan type '{scan_type}' not yet implemented."}), 400
+"""
+
+
+
+# -- Container Scans API Endpoints ---    
+
+
+@api_bp.route('/findings/container-scans', methods=['GET'])
+def get_container_scans():
+    # Access container service via current_app
+    container_service = current_app.container_service 
+
+    if not container_service:
+        current_app.logger.error("Container service not initialized in current_app.")
+        return jsonify({"error": "Container service not available."}), 500
+
+    scans = container_service.get_all_findings()
+    return jsonify(scans), 200    
+
+@api_bp.route('findings/container-scans/<string:artifactname>', methods=['GET'])
+def get_container_scan_by_artifact_name(artifactname: str):
+    # Access container service via current_app
+    container_service = current_app.container_service 
+
+    if not container_service:
+        current_app.logger.error("Container service not initialized in current_app.")
+        return jsonify({"error": "Container service not available."}), 500
+
+    finding = container_service.get_scan_by_artifact_name(artifactname)
+    if not finding:
+        return jsonify({"error": f"Container Scan with Artifact-Name {artifactname} not found."}), 404
+
+    return jsonify(finding), 200
+
+@api_bp.route('/findings/container-scans/findings/<int:finding_id>', methods=['GET'])
+def get_container_finding_by_id(finding_id: int):
+    # Access container service via current_app
+    container_service = current_app.container_service 
+
+    if not container_service:
+        current_app.logger.error("Container service not initialized in current_app.")
+        return jsonify({"error": "Container service not available."}), 500
+
+    finding = container_service.get_finding_by_id(finding_id)
+    if not finding:
+        return jsonify({"error": f"Container finding with ID {finding_id} not found."}), 404
+
+    return jsonify(finding), 200
+
+@api_bp.route('/findings/container-scans/<int:scan_id>/findings', methods=['GET'])
+def get_findings_for_container_scan(scan_id):
+    """
+    Retrieves all findings for a specific container scan.
+    """
+    container_service = current_app.container_service
+    if not container_service:
+        return jsonify({"error": "Container service not initialized."}), 500
+        
+    try:
+        findings = container_service.get_findings_for_scan(scan_id)
+        
+        if findings is None:
+            # This indicates the scan_id was not found
+            return jsonify({"error": f"ContainerScan with ID {scan_id} not found."}), 404
+        
+        # If the scan exists but has no findings, an empty list is a valid response
+        return jsonify(findings), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error fetching findings for scan {scan_id}: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred."}), 500
+
+
+
+
+# --- SAST Scans API Endpoints ---
+
+@api_bp.route('/findings/sast-scans', methods=['GET'])
+def get_sast_scans():
+    # Access SAST service via current_app
+    sast_service = current_app.sast_service
+
+    if not sast_service:
+        current_app.logger.error("SAST service not initialized in current_app.")
+        return jsonify({"error": "SAST service not available."}), 500
+
+    scans = sast_service.get_all_sast_findings()
+    return jsonify(scans), 200
 
 
 # --- Consolidated API Endpoint for LLM Analysis ---

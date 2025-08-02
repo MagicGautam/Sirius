@@ -4,8 +4,9 @@ import logging
 from datetime import datetime, timedelta
 from hashlib import sha256
 from typing import Dict, Any, Tuple
+from sqlalchemy.exc import IntegrityError
 
-from backend.models.container_models import ContainerFinding # Assuming this path
+from backend.models.container_models import ContainerFinding, ContainerScan # Assuming this path
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +90,73 @@ class ContainerService:
             self.db.session.commit() # Commit failed status
             return {"error": f"Failed to generate LLM analysis for container finding: {e}"}, 500
 
+    
     def ingest_trivy_report(self, report_data: Dict[str, Any]) -> Tuple[int, int]:
+        """
+        Ingests a Trivy report into the database, creating new findings as necessary.
+        Returns the count of new findings created and the total findings in the report.
+        """
+        if not report_data:
+            logger.error("ingest_trivy_report received None or empty report_data.")
+            return 0, 0
+
+        if not isinstance(report_data, dict):
+            logger.error(f"ingest_trivy_report received non-dict report_data: {type(report_data)}")
+            return 0, 0
+
+        report_hash=sha256(str(report_data).encode('utf-8')).hexdigest()
+
+        #Checking if this report has already been ingested
+        existing_scan = self.db.session.query(ContainerScan).filter_by(report_hash=report_hash).first()
+        if existing_scan:
+            logger.info(f"Trivy report with hash {report_hash} already exists. Skipping ingestion.")
+            total_findings = sum(len(result.get('Vulnerabilities', [])) for result in report_data.get('Results', []))
+            return 0, 0
+        
+        scan = ContainerScan(
+            image_name=report_data.get('ArtifactName', 'Unknown'),
+            image_digest=report_data.get('ArtifactDigest', 'Unknown'),
+            os_family=report_data.get('Metadata', {}).get('OS', {}).get('Family', 'Unknown'),
+            os_name=report_data.get('Metadata', {}).get('OS', {}).get('Name'),
+            report_hash=report_hash
+            )
+        
+        try:
+            self.db.session.add(scan)
+            self.db.session.commit()
+            logger.info(f"Created new ContainerScan entry with ID: {scan.id}")
+            scan_id = scan.id
+        except IntegrityError as e:
+            self.db.session.rollback()
+            logger.error(f"Failed to create ContainerScan due to IntegrityError: {e}", exc_info=True)
+            return 0, 0
+        except Exception as e:
+            self.db.session.rollback()
+            logger.error(f"Failed to create ContainerScan: {e}", exc_info=True)
+            return 0, 0
+        
+        new_findings_count, total_findings_in_report = self.ingest_container_finding(report_data, scan_id)
+        # Update the parent scan with the total count and commit
+        scan.total_vulnerabilities_found = total_findings_in_report
+        self.db.session.add(scan)
+        self.db.session.commit()
+
+        return new_findings_count, total_findings_in_report
+
+    
+    def ingest_container_finding(self, report_data: Dict[str, Any], scan_id=int) -> Tuple[int, int]:
+        """
+        Ingests findings from a report and links them to a specific scan_id.
+        This method is designed to be called by ingest_trivy_report.
+        Returns the count of new findings created and the total findings found in the report.
+        """
         new_findings_count = 0
+        results = report_data.get('Results', [])
+        total_findings_in_report = sum(len(result.get('Vulnerabilities', [])) for result in results)
+
+        if not results:
+            logger.info("No 'Results' list found or it's empty in the Trivy report.")
+            return 0, 0
 
         if report_data is None:
             logger.error("ingest_trivy_report received None for report_data.")
@@ -99,12 +165,6 @@ class ContainerService:
             logger.error(f"ingest_trivy_report received non-dict report_data: {type(report_data)}")
             return 0, 0
 
-        results = report_data.get('Results', [])
-        total_findings_in_report = sum(len(result.get('Vulnerabilities', [])) for result in results)
-
-        if not results:
-            logger.info("No 'Results' list found or it's empty in the Trivy report.")
-            return 0, 0
 
         for result in results:
             vulnerabilities = result.get('Vulnerabilities', [])
@@ -145,6 +205,7 @@ class ContainerService:
 
                     if not existing_finding:
                         new_finding = ContainerFinding(
+                            scan_id=scan_id,
                             unique_finding_key=unique_finding_key,
                             vulnerability_id=vulnerability_id,
                             pkg_name=pkg_name,
@@ -163,10 +224,10 @@ class ContainerService:
                         )
                         self.db.session.add(new_finding)
                         new_findings_count += 1
-                        logger.debug(f"Adding new container finding: {unique_finding_key}")
+                        logger.debug(f"Adding new container finding for scan ID {scan_id}: {vulnerability_id}")
                     else:
-                        logger.debug(f"Skipping duplicate container finding: {unique_finding_key}")
-
+                        logger.debug(f"Skipping duplicate container finding within scan ID {scan_id}: {vulnerability_id}")
+                        
                 except Exception as e:
                     logger.error(f"Error processing container vulnerability: {e}", exc_info=True)
                     continue
@@ -181,6 +242,28 @@ class ContainerService:
 
         return new_findings_count, total_findings_in_report
 
-    def get_all_findings(self):
-        findings = self.db.session.query(ContainerFinding).all()
+    def get_findings_for_scan(self, scan_id: int):
+    
+        """ Fetches all ContainerFindings associated with a specific ContainerScan ID.
+        """
+        # First, check if the scan itself exists
+        scan = self.db.session.query(ContainerScan).filter_by(id=scan_id).first()
+        if not scan:
+            logger.warning(f"Attempted to fetch findings for non-existent scan ID: {scan_id}")
+            return None  # Or raise a specific exception
+
+        findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan_id).all()
         return [f.to_dict() for f in findings]
+        
+    def get_finding_by_id(self, finding_id: int):
+        finding = self.db.session.query(ContainerFinding).filter_by(id=finding_id).first()
+        if not finding:
+            return None
+        return finding.to_dict()
+    
+    def get_scan_by_artifact_name(self, artifact_name: str):
+        scan = self.db.session.query(ContainerScan).filter_by(id=artifact_name).first()
+        if not scan:
+            return None
+        return scan.to_dict()
+    
