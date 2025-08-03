@@ -5,21 +5,13 @@ from flask import Flask
 import logging
 from backend.config import DevelopmentConfig
 
-# Define logger early for maximum visibility
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# CRITICAL EARLY IMPORTS:
-# Import the Flask-SQLAlchemy 'db' object.
-# 'Base' is no longer needed here if models inherit from db.Model.
 from backend.models import db, cache, cors 
-# You still need to import your models directly here to ensure
-# db.metadata (which db.Model uses) discovers them.
-from backend.models.sast_models import SastFinding
 from backend.models.container_models import ContainerScan, ContainerFinding, CVERichment
 
 # --- NEW DEBUGGING BLOCK: VERY EARLY METADATA INSPECTION ---
-# Now we inspect db.metadata.tables directly
 logger.debug("--- Early inspection of db.metadata.tables (before app init) ---")
 if not db.metadata.tables:
     logger.critical("FATAL: db.metadata.tables is EMPTY before app initialization! "
@@ -45,7 +37,7 @@ def create_app(config_class):
 
     app.config.from_object(config_class)
 
-    # --- DEVELOPMENT MODE ONLY: Delete existing database files ---
+    """# --- DEVELOPMENT MODE ONLY: Delete existing database files ---
     configured_bind_uris = app.config.get('SQLALCHEMY_BINDS', {}).values()
     
     for uri in configured_bind_uris:
@@ -59,7 +51,7 @@ def create_app(config_class):
                     logger.error(f"Error deleting database file {db_file_path} on startup: {e}", exc_info=True)
                     logger.warning(f"Failed to delete {db_file_path}. Previous data might persist.")
     # --- END DEVELOPMENT MODE BLOCK ---
-
+    """
     db.init_app(app) # Initialize Flask-SQLAlchemy's db object with the app and its config
 
     cache.init_app(app)
