@@ -2,43 +2,98 @@
 
 This section outlines the full methodology for how Container Image findings are ingested, analyzed using a local LLM (via Ollama), and cached for efficient retrieval.
 
+---
 
+### 1. 📐 Container Data Model
 
-# NEED TO UPDATE IT AS OF 2nd Aug;
+The system now uses a parent-child relationship to represent scan data, ensuring better organization and preventing redundancy:
 
-SIRIUS Container Scan Feature - Documentation Update
-This document outlines the key changes and new functionality implemented today to enhance the container scanning feature. The primary focus was on improving the data ingestion logic and creating a new endpoint for more granular data retrieval.
+* **`ContainerScan`**: Represents a single, complete Trivy report. This model stores high-level metadata such as the `image_name`, `os_name`, and a unique `report_hash` to prevent duplicate ingestion.
+* **`ContainerFinding`**: Represents an individual vulnerability from a report. Each finding is linked to its parent scan via a foreign key (`scan_id`). It stores details like the `vulnerability_id`, `severity`, and `cve_data`.
+* **`CVERichment`**: A lookup table used to store detailed CVE information, which is fetched from external sources and cached to prevent redundant API calls.
 
-Service Logic Improvements
-The core of our work today involved refactoring the data ingestion process within the ContainerService. Previously, the ingestion logic directly stored vulnerability findings without creating a parent record for the entire scan, which led to a loss of valuable metadata.
+**LLM-specific fields for `ContainerFinding` include:**
 
-We addressed this by restructuring the ingestion into a two-part process:
+- `llm_analysis_summary`: A brief, high-level summary of the vulnerability.
+- `llm_analysis_recommendations`: Technical steps to fix the issue.
+- `llm_analysis_risk_score`: A score assigned by the LLM (e.g., 1-10).
+- `llm_analysis_timestamp`: The time of the last analysis.
+- `llm_analysis_prompt_hash`: A SHA256 hash of the prompt used for caching.
+- `llm_analysis_status`: Tracks the analysis state (e.g., 'pending', 'completed', 'failed').
 
-ingest_trivy_report: This is now the main entry point for ingesting a full Trivy report. It is responsible for creating a new ContainerScan record, which contains high-level information like the image name, timestamp, and a unique hash of the entire report. This hash ensures that duplicate reports are not processed multiple times. Once the parent scan record is created, this method then calls the second method to handle the individual findings.
+---
 
-ingest_container_finding: The original ingestion code was refactored into this new, more modular method. It is now responsible solely for parsing the vulnerabilities from the report and creating a ContainerFinding record for each one. Crucially, it now correctly links each finding back to its parent ContainerScan using the scan_id provided by the calling method.
+### 2. 🔄 Ingestion Logic & API Endpoints
 
-This new architecture ensures data integrity, prevents redundant data, and establishes the correct one-to-many relationship between a scan and its findings.
+The ingestion process has been refactored into a robust two-part service logic to ensure data integrity and prevent redundancy. The API provides a comprehensive set of endpoints for managing this data.
 
-API Endpoints for Container Scan
-We have updated one existing endpoint and created a new one to support the new service logic.
+#### Ingest Container Scan Report
 
-1. Ingest Container Scan Report
-Method: POST
+* **Method:** `POST`
+* **URL:** `/api/container/scans`
+* **Description:** This is the main endpoint for submitting a complete Trivy vulnerability report in JSON format. The service will process the report, create a new `ContainerScan` record, and store all associated findings. The endpoint intelligently skips the ingestion process if the same report has already been submitted (based on a unique hash of the report).
+* **Service Flow:** `ingest_trivy_report` creates the parent `ContainerScan` record, and then calls `ingest_container_finding` for each vulnerability to create the child records linked by `scan_id`.
 
-URL: /api/container/scans
+#### Retrieve All Container Scans
 
-Description: This endpoint is used to submit a complete Trivy vulnerability report in JSON format. The service will process the report, create a new scan record, and store all associated findings. The endpoint will intelligently skip the ingestion process if the same report has already been submitted.
+* **Method:** `GET`
+* **URL:** `/api/container/scans`
+* **Description:** Returns a list of all `ContainerScan` records, providing a high-level overview of all reports that have been ingested.
 
-Success Response: A status message confirming the ingestion, including the number of new findings created and the total number of findings found in the report.
+#### Retrieve a Single Container Scan by Artifact Name
 
-2. Retrieve Findings for a Specific Scan
-Method: GET
+* **Method:** `GET`
+* **URL:** `/api/container/scans/<string:artifactname>`
+* **Description:** Fetches a specific `ContainerScan` record using its `image_name` (e.g., "my-nginx-app:1.0").
 
-URL: /api/container/scans/{scan_id}/findings
+#### Retrieve Findings for a Specific Scan
 
-Description: This endpoint allows you to retrieve all vulnerability findings that belong to a single, specific container scan. The scan_id is a unique integer identifier for the scan record.
+* **Method:** `GET`
+* **URL:** `/api/container/scans/<string:identifier>/findings`
+* **Description:** This endpoint retrieves all findings for a specific scan. The `identifier` can be either the unique `scan_id` (an integer) or the `image_name` (e.g., "my-nginx-app:1.0"), making the API more flexible.
 
-Success Response: A JSON array of all the vulnerability finding objects associated with the provided scan ID. An empty array will be returned if the scan exists but has no findings.
+#### Retrieve a Single Container Finding by ID
 
-Error Response: Returns a 404 Not Found error if a scan with the specified scan_id does not exist in the database.
+* **Method:** `GET`
+* **URL:** `/api/container/findings/<int:finding_id>`
+* **Description:** Fetches a single `ContainerFinding` record by its unique `id` for detailed inspection.
+
+---
+
+### 3. 🧠 LLM Integration via Ollama
+
+The system integrates a local LLM to transform raw CVE data into contextual, actionable intelligence. The LLM integration and caching strategy are identical to the SAST flow.
+
+#### LLM Endpoint
+
+* **Endpoint:** `GET /api/llm/analyze/container/<finding_id>`
+* **Description:** When triggered, this endpoint performs or retrieves a cached LLM analysis for a given `ContainerFinding` and returns a structured response with a summary, remediation steps, and a risk score.
+
+---
+
+### 4. ⚡ LLM Caching Strategy
+
+A robust, database-backed caching mechanism is implemented to optimize performance and prevent redundant LLM invocations. This ensures that the same analysis is not performed twice.
+
+**Key features include:**
+
+- **Prompt Hashing**: A SHA256 hash of the prompt is generated and stored with the analysis.
+- **Cache Hit**: If a matching hash and a valid analysis exist, the cached content is served instantly.
+- **Cache Miss**: If the cache is invalid, a new LLM request is made, and the new analysis is stored along with an updated timestamp and prompt hash.
+- **Status Tracking**: The `llm_analysis_status` field tracks the state of the analysis request.
+
+---
+
+### ✅ Summary
+
+| Step               | Description                                                                                             |
+|--------------------|---------------------------------------------------------------------------------------------------------|
+| Ingest             | Accepts a Trivy JSON report, checks for duplicates, creates a `ContainerScan`, and stores all new `ContainerFinding` records. |
+| Analyze            | Generates a structured prompt from finding data and sends it to the LLM.                                    |
+| Structure Response | Receives a Markdown response and parses it into `summary`, `recommendations`, and `risk_score`.         |
+| Cache              | Stores the analysis, timestamp, and a prompt hash to prevent duplicate work.                               |
+| Serve              | Returns cached results on demand or triggers new analysis if the cache is stale.                          |
+
+---
+
+> 🧠 *This container scan pipeline transforms raw security data into contextual, actionable, and structured intelligence—making triage and remediation significantly faster for developers and security teams.*
