@@ -23,5 +23,5 @@ cors = CORS()
 # You MUST import your model classes here.
 # This ensures that Flask-SQLAlchemy's `db.metadata` discovers them
 # when they inherit from `db.Model`.
-from .sast_models import SastFinding
+from .sast_models import SastScan, SastFinding
 from .container_models import ContainerScan, ContainerFinding, CVERichment

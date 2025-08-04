@@ -201,7 +201,12 @@ class ContainerService:
 
                     unique_finding_key = sha256(f"{vulnerability_id}-{pkg_name}-{installed_version}".encode('utf-8')).hexdigest()
 
-                    existing_finding = self.db.session.query(ContainerFinding).filter_by(unique_finding_key=unique_finding_key).first()
+                    existing_finding = self.db.session.query(ContainerFinding).filter_by(
+                    scan_id=scan_id,
+                    vulnerability_id=vulnerability_id,
+                    pkg_name=pkg_name,
+                    installed_version=installed_version
+                    ).first()
 
                     if not existing_finding:
                         new_finding = ContainerFinding(
@@ -242,28 +247,35 @@ class ContainerService:
 
         return new_findings_count, total_findings_in_report
 
-    def get_findings_for_scan(self, scan_id: int):
-    
-        """ Fetches all ContainerFindings associated with a specific ContainerScan ID.
+    def get_findings_for_scan(self, identifier: str):
         """
-        # First, check if the scan itself exists
-        scan = self.db.session.query(ContainerScan).filter_by(id=scan_id).first()
+        Fetches all ContainerFindings associated with a specific ContainerScan,
+        which can be identified by either its ID or its artifact name.
+        """
+        # First, try to find the scan by ID (if identifier is a number)
+        try:
+            scan_id = int(identifier)
+            scan = self.db.session.query(ContainerScan).filter_by(id=scan_id).first()
+        except (ValueError, TypeError):
+            # If it's not a number, assume it's an artifact name
+            scan = self.db.session.query(ContainerScan).filter_by(image_name=identifier).first()
+        
         if not scan:
-            logger.warning(f"Attempted to fetch findings for non-existent scan ID: {scan_id}")
-            return None  # Or raise a specific exception
+            logger.warning(f"Attempted to fetch findings for non-existent scan with identifier: {identifier}")
+            return None
 
-        findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan_id).all()
+        findings = self.db.session.query(ContainerFinding).filter_by(scan_id=scan.id).all()
         return [f.to_dict() for f in findings]
         
-    def get_finding_by_id(self, finding_id: int):
-        finding = self.db.session.query(ContainerFinding).filter_by(id=finding_id).first()
-        if not finding:
-            return None
-        return finding.to_dict()
-    
     def get_scan_by_artifact_name(self, artifact_name: str):
-        scan = self.db.session.query(ContainerScan).filter_by(id=artifact_name).first()
+        scan = self.db.session.query(ContainerScan).filter_by(image_name=artifact_name).first()
         if not scan:
             return None
         return scan.to_dict()
     
+    def get_all_scans(self):
+        """
+        Retrieves all ContainerScans from the database.
+        """
+        scans = self.db.session.query(ContainerScan).all()
+        return [s.to_dict() for s in scans]
