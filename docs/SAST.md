@@ -6,7 +6,12 @@ This section outlines the full methodology for how SAST findings are ingested, a
 
 ### 1. 📐 SAST Data Model
 
-The system defines a `SastFinding` model in the backend to represent individual vulnerabilities. Each finding stores metadata such as:
+To structure the data, the system now uses a parent-child relationship between two models:
+
+* **`SastScan`**: Represents a single, complete SAST report. It stores high-level metadata such as a unique `project_name` and a `report_hash` to prevent duplicate ingestion.
+* **`SastFinding`**: Represents an individual vulnerability or finding from a report. Each finding is linked to its parent scan via a foreign key (`scan_id`).
+
+**Each finding stores key metadata such as:**
 
 - Rule ID
 - File path and line number
@@ -16,26 +21,29 @@ The system defines a `SastFinding` model in the backend to represent individual 
 
 **LLM-specific fields include:**
 
-- `llm_analysis_content`: Stores the LLM's generated analysis.
-- `llm_analysis_prompt_hash`: Stores a SHA256 hash of the generated prompt to detect changes and avoid redundant analysis.
+- `llm_analysis_summary`: A brief, high-level summary of the vulnerability.
+- `llm_analysis_recommendations`: Technical steps to fix the issue.
+- `llm_analysis_risk_score`: A score assigned by the LLM (e.g., 1-10).
+- `llm_analysis_timestamp`: The time of the last analysis.
+- `llm_analysis_prompt_hash`: A SHA256 hash of the prompt used for analysis, crucial for caching.
+- `llm_analysis_status`: Tracks the analysis state (e.g., 'pending', 'completed', 'failed').
 
-A unique constraint ensures that duplicate findings (based on rule ID, file path, line number, and description) are not inserted multiple times.
+A unique constraint ensures that duplicate findings **within a single scan** are not inserted multiple times.
 
 ---
 
 ### 2. 🔄 SAST Report Ingestion
 
-**Endpoint:** `/api/ingest/sast`  
+**Endpoint:** `POST /api/sast/scans`  
 **Backend Services:** `sast_service.py`, `app.py`
 
-This API endpoint accepts raw JSON reports (e.g., from Semgrep) and extracts key fields from each result. The ingestion logic:
+This API endpoint accepts raw JSON reports (e.g., from Semgrep) and manages the full ingestion process. The logic now works as follows:
 
-- Parses each entry in the report.
-- Extracts rule ID, file path, line number, severity, description, code snippet, and suggested fix.
-- Checks for duplicates based on the unique constraint.
-- Stores valid, non-duplicate findings into the database.
+- **Report Hashing**: A unique SHA256 hash of the entire report is generated. If a `SastScan` with this hash already exists, the ingestion is skipped entirely.
+- **Scan Creation**: If it's a new report, a `SastScan` entry is created with the provided `project_name` and the new hash.
+- **Finding Ingestion**: The report's findings are then parsed, extracted, and stored as `SastFinding` records, each linked to the new `SastScan` via its `scan_id`.
 
-This enables persistent and structured storage of static analysis results.
+This new two-step process is more robust, preventing duplicate work at the report level and ensuring data is organized by scan.
 
 ---
 
@@ -58,24 +66,21 @@ Each prompt sent to the LLM includes:
 - File context and code snippet
 - Severity and any suggested fix
 
-To ensure consistency, the prompt instructs the model to:
+To ensure consistency, the prompt instructs the model to provide a structured Markdown response with the following sections, which are then parsed into the new database fields:
 
-- Be direct, technical, and non-conversational
-- Use a fixed Markdown format with the following sections:
-  - `### Vulnerability Summary`
-  - `### Security Implications`
-  - `### Remediation`
-
-This structure allows downstream automation or frontend formatting to remain predictable.
+- `### Vulnerability Summary` (for `llm_analysis_summary`)
+- `### Remediation` (for `llm_analysis_recommendations`)
+- `### Risk Score` (for `llm_analysis_risk_score`)
 
 #### LLM Endpoint
 
-- **Endpoint:** `/api/llm/analyze/sast/<finding_id>`
+- **Endpoint:** `GET /api/llm/analyze/sast/<finding_id>`
 - When triggered, it:
   - Fetches the relevant finding from the database.
-  - Generates a structured prompt.
+  - Checks the caching status.
+  - Generates a structured prompt if needed.
   - Sends it to Ollama’s `/api/generate`.
-  - Parses and returns the structured Markdown response.
+  - Parses the response and populates the `llm_analysis_*` fields.
 
 ---
 
@@ -85,15 +90,13 @@ To optimize performance and prevent redundant LLM invocations, a database-backed
 
 #### How It Works
 
-1. **Prompt Generation**: A consistent prompt is generated for the finding.
-2. **Hashing**: A SHA256 hash of the prompt is calculated.
+1. **Status Check**: The method first checks the `llm_analysis_status` and `llm_analysis_timestamp` on the finding.
+2. **Prompt Hashing**: A consistent prompt is generated for the finding and a SHA256 hash of the prompt is calculated.
 3. **Cache Check**:
-   - If a matching `llm_analysis_prompt_hash` exists **and**
-   - A valid `llm_analysis_content` is stored,
-   - Then the cached content is served immediately.
+   - If the `llm_analysis_status` is 'completed', the timestamp is recent (e.g., within 7 days), **and** the `llm_analysis_prompt_hash` matches,
+   - Then the cached analysis (summary, recommendations, risk score) is served instantly.
 4. **Cache Miss**:
-   - If no match or no analysis content exists,
-   - A new LLM request is made and response stored along with the new hash.
+   - If the cache is invalid, a new LLM request is made. The finding's status is updated to 'pending', and upon completion, the new analysis is stored along with a fresh timestamp and prompt hash.
 
 #### Benefits
 
@@ -105,13 +108,13 @@ To optimize performance and prevent redundant LLM invocations, a database-backed
 
 ### ✅ Summary
 
-| Step               | Description                                                                 |
-|--------------------|-----------------------------------------------------------------------------|
-| Ingest             | Accept and parse JSON reports, extract and store deduplicated SAST findings |
-| Analyze            | Generate a structured prompt and send it to the LLM                         |
-| Structure Response | Receive human-readable, Markdown-formatted analysis                        |
-| Cache              | Store analysis and hash to prevent duplicate work                           |
-| Serve              | Return cached or fresh results on demand                                    |
+| Step               | Description                                                                                             |
+|--------------------|---------------------------------------------------------------------------------------------------------|
+| Ingest             | Accepts a JSON report, checks for duplicates, creates a `SastScan`, and stores all new `SastFinding` records. |
+| Analyze            | Generates a structured prompt from finding data and sends it to the LLM.                                    |
+| Structure Response | Receives a Markdown response and parses it into `summary`, `recommendations`, and `risk_score`.         |
+| Cache              | Stores the analysis, timestamp, and a prompt hash to prevent duplicate work.                               |
+| Serve              | Returns cached results on demand or triggers new analysis if the cache is stale.                          |
 
 ---
 
